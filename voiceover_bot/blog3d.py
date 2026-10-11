@@ -20,8 +20,14 @@ THREE_CDN = "https://unpkg.com/three@0.160.0/build/three.module.min.js"
 DIRS = [("юг", "S"), ("сниз", "S"), ("низ", "S"), ("север", "N"), ("сверх", "N"), ("верх", "N"),
         ("спере", "N"), ("впере", "N"), ("восток", "E"), ("справ", "E"), ("прав", "E"),
         ("запад", "W"), ("слев", "W"), ("лев", "W")]
-MOVES = [("налев", "left"), ("направ", "right"), ("прям", "straight")]
-HEAD_KEYS = {"тема", "хук", "вопрос", "ответ", "голос ответа", "перекресток", "знак", "главная", "очередь"}
+MOVES = [("налев", "left"), ("направ", "right"), ("прям", "straight"), ("развор", "uturn")]
+HEAD_KEYS = {"тема", "хук", "вопрос", "ответ", "голос ответа", "перекресток", "главная", "очередь"}
+COLORS = [("зел", "green"), ("крас", "red"), ("желт", "yellow"), ("миг", "blink"), ("выкл", "off"), ("не раб", "off")]
+
+
+def parse_color(text):
+    t = norm(text)
+    return next((c for stem, c in COLORS if stem in t), None)
 
 
 def norm(s):
@@ -53,9 +59,36 @@ def parse_scenario(path):
             else:
                 yield norm(ln), ""
 
+    signs, lights, peds = [], {}, []
     for k, v in lines(parts[0]):
         if k in HEAD_KEYS or re.match(r"вариант\s*\d", k):
             head[k] = v
+            continue
+        if k == "знак":
+            for part in v.split(";"):
+                w = re.split(r"[,\s]+", part)
+                kind = "main" if any(norm(x).startswith("главн") for x in w) else "stop" if any(norm(x).startswith("стоп") for x in w) else "yield"
+                signs.append({"kind": kind, "from": next((parse_dir(x) for x in w if parse_dir(x)), "S")})
+            continue
+        if k == "светофор":
+            for part in v.split(","):
+                c = parse_color(part)
+                d = next((parse_dir(x) for x in part.split() if parse_dir(x)), None)
+                if c and d:
+                    lights[d] = c
+                elif c:                      # one color without a side: ours (S/N) gets it, crossing road the opposite
+                    lights.update({"S": c, "N": c})
+                    if c in ("green", "red"):
+                        lights.update({"E": "red" if c == "green" else "green", "W": "red" if c == "green" else "green"})
+                    else:
+                        lights.update({"E": c, "W": c})
+            continue
+        if k.startswith("пешеход"):
+            w = re.split(r"[,\s]+", v)
+            n = next((int(x) for x in w if x.isdigit()), 3)
+            peds.append({"id": "пешеходы" if not peds else f"пешеходы{len(peds) + 1}",
+                         "cross": next((parse_dir(x) for x in w if parse_dir(x)), "W"), "n": n,
+                         "walking": any(norm(x).startswith(("ид", "перех")) for x in w)})
             continue
         words = re.split(r"[,\s]+", v)
         frm = next((parse_dir(w) for w in words if parse_dir(w) and not any(norm(w).startswith(m) for m, _ in MOVES)), None)
@@ -99,16 +132,12 @@ def parse_scenario(path):
     # scene
     junction = norm(head.get("перекресток", "крест"))
     missing = None
-    if junction.startswith("т"):
+    if junction.startswith("т") and not junction.startswith("тр"):
         missing = next((parse_dir(w) for w in re.split(r"[,\s]+", junction)[1:] if parse_dir(w)), "N")
-    sign = None
-    if head.get("знак"):
-        w = re.split(r"[,\s]+", head["знак"])
-        kind = "main" if any(norm(x).startswith("главн") for x in w) else "yield"
-        sign = {"kind": kind, "from": next((parse_dir(x) for x in w if parse_dir(x)), "S")}
     main = [parse_dir(x) for x in re.split(r"[,\s\-]+", head.get("главная", "")) if parse_dir(x)][:2]
     order = [norm(x) for x in head.get("очередь", "").split(",") if x.strip()]
-    sc = {"actors": actors, "sign": sign, "main": main, "missing": missing, "order": order}
+    sc = {"actors": actors, "signs": signs, "main": main, "missing": missing, "order": order,
+          "lights": lights, "peds": peds, "round": junction.startswith("кольц") or junction.startswith("круг")}
     return head, beats, sc
 
 
