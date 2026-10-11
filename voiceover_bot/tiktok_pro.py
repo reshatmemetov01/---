@@ -324,7 +324,7 @@ def make_synth(engine, voice, role):
 
         async def base(t):
             return await asyncio.to_thread(synth_yandex_v3, t, v, key, role)
-        return base, v, role
+        return base, v, role + "@" + (os.environ.get("YANDEX_SPEED") or "1.0").strip()
     if engine == "yandex":
         key = os.environ.get("YANDEX_API_KEY", "").strip()
         folder = os.environ.get("YANDEX_FOLDER_ID", "").strip()
