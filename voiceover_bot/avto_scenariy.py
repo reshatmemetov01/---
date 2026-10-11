@@ -131,7 +131,7 @@ def ask_ai(image_path, user_text):
         return "".join(c.get("text", "") for c in r.get("content", []))
     if p == "openai":
         if os.environ.get("OPENROUTER_API_KEY"):
-            base, key, model = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"], os.environ.get("AI_MODEL", "google/gemma-4-31b-it:free,thinkingmachines/inkling:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+            base, key, model = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"], os.environ.get("AI_MODEL", "google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
         else:
             base, key, model = os.environ["AI_BASE_URL"].rstrip("/"), os.environ["AI_API_KEY"], os.environ.get("AI_MODEL", "")
         # AI_MODEL may list several models via comma: free ones are often busy (429), so rotate and retry
@@ -151,9 +151,9 @@ def ask_ai(image_path, user_text):
                 err = RuntimeError(f"пустой ответ от {mdl}: {str(r)[:300]}")
             except RuntimeError as e:
                 err = e
-                if not re.search(r"ошибкой (429|5\d\d)", str(e)):
+                if re.search(r"ошибкой (401|402)", str(e)):      # bad key / no money: retrying is useless
                     raise
-            print(f"  {mdl} занят, пробую ещё ({attempt + 1}/8)...", flush=True)
+            print(f"  {mdl} не ответил, пробую следующую ({attempt + 1}/8)...", flush=True)
             time.sleep(min(30, 5 * (attempt + 1)))
         raise err
     raise RuntimeError("Не задан ключ ИИ (ANTHROPIC_API_KEY или OPENROUTER_API_KEY)")
