@@ -1,4 +1,4 @@
-import asyncio, sys
+import asyncio, re, sys
 from pathlib import Path
 from playwright.async_api import async_playwright
 import auto_quiz
@@ -6,6 +6,11 @@ from auto_quiz import parse_questions
 from make_video import read_text_any
 from site_quiz import (BILET_URL, _prepare_page, _wait_question_ready,
     _read_hint_and_options, _click_answer, _find_green_option, _goto_next)
+
+def norm(t):
+    t = t.lower().replace("\u0451", "\u0435")
+    return re.sub(r"[^0-9a-z\u0430-\u044f]+", "", t)
+
 
 async def green(page, n):
     await _click_answer(page, 0)
@@ -37,8 +42,11 @@ async def check(b, local, out):
             loc = local.get(num)
             if g < 0:
                 out.append(f"bilet {b} q{num}: site green not found - CHECK BY EYE")
-            elif loc is not None and g != loc:
-                out.append(f"bilet {b} q{num}: file={loc+1} site={g+1}  <-- FIX")
+            elif loc is None:
+                out.append(f"bilet {b} q{num}: no answer in file  <-- FIX")
+            elif norm(info["opts"][g]) != norm(loc[0]):
+                right = next((k + 1 for k, o in enumerate(loc[1]) if norm(o) == norm(info["opts"][g])), "?")
+                out.append(f"bilet {b} q{num}: file={loc[2]+1} correct={right}  <-- FIX")
             if i < 19:
                 cur = info["num"]
                 await _goto_next(page)
@@ -55,7 +63,8 @@ async def main(a, z):
         if not f.exists():
             out.append(f"bilet {b}: no file")
             continue
-        local = {q.number: q.correct for q in parse_questions(read_text_any(str(f)))}
+        local = {q.number: (q.options[q.correct], q.options, q.correct)
+                 for q in parse_questions(read_text_any(str(f))) if 0 <= q.correct < len(q.options)}
         print(f"checking bilet {b}...", flush=True)
         try:
             await check(b, local, out)
