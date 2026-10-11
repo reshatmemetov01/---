@@ -111,7 +111,7 @@ def _post(url, headers, body, timeout=180):
 def provider():
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
-    if os.environ.get("GITHUB_TOKEN") or os.environ.get("OPENROUTER_API_KEY") or (os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY")):
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GITHUB_TOKEN") or os.environ.get("OPENROUTER_API_KEY") or (os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY")):
         return "openai"
     return None
 
@@ -136,6 +136,8 @@ def ask_ai(image_path, user_text):
             cands.extend((base, key, m.strip()) for m in models.split(",") if m.strip())
         if os.environ.get("GITHUB_TOKEN"):
             add("https://models.github.ai/inference", os.environ["GITHUB_TOKEN"], os.environ.get("GITHUB_MODEL", "openai/gpt-4.1,openai/gpt-4o"))
+        if os.environ.get("GEMINI_API_KEY"):
+            add("https://generativelanguage.googleapis.com/v1beta/openai", os.environ["GEMINI_API_KEY"], os.environ.get("GEMINI_MODEL", "gemini-2.5-flash,gemini-2.5-flash-lite"))
         if os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY"):
             add(os.environ["AI_BASE_URL"].rstrip("/"), os.environ["AI_API_KEY"], os.environ.get("AI_MODEL", ""))
         if os.environ.get("OPENROUTER_API_KEY"):
