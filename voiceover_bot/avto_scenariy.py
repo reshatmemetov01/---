@@ -111,7 +111,7 @@ def _post(url, headers, body, timeout=180):
 def provider():
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
-    if os.environ.get("OPENROUTER_API_KEY") or (os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY")):
+    if os.environ.get("GITHUB_TOKEN") or os.environ.get("OPENROUTER_API_KEY") or (os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY")):
         return "openai"
     return None
 
@@ -130,15 +130,21 @@ def ask_ai(image_path, user_text):
                        {"type": "text", "text": user_text}]}]})
         return "".join(c.get("text", "") for c in r.get("content", []))
     if p == "openai":
+        # every configured endpoint with its models, tried in this order; free ones are often busy -> next
+        cands = []
+        def add(base, key, models):
+            cands.extend((base, key, m.strip()) for m in models.split(",") if m.strip())
+        if os.environ.get("GITHUB_TOKEN"):
+            add("https://models.github.ai/inference", os.environ["GITHUB_TOKEN"], os.environ.get("GITHUB_MODEL", "openai/gpt-4.1,openai/gpt-4o"))
+        if os.environ.get("AI_BASE_URL") and os.environ.get("AI_API_KEY"):
+            add(os.environ["AI_BASE_URL"].rstrip("/"), os.environ["AI_API_KEY"], os.environ.get("AI_MODEL", ""))
         if os.environ.get("OPENROUTER_API_KEY"):
-            base, key, model = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"], os.environ.get("AI_MODEL", "google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
-        else:
-            base, key, model = os.environ["AI_BASE_URL"].rstrip("/"), os.environ["AI_API_KEY"], os.environ.get("AI_MODEL", "")
-        # AI_MODEL may list several models via comma: free ones are often busy (429), so rotate and retry
-        models = [x.strip() for x in model.split(",") if x.strip()] or [model]
+            add("https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"],
+                os.environ.get("OPENROUTER_MODEL") or "google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
         err = None
-        for attempt in range(8):
-            mdl = models[attempt % len(models)]
+        tries = max(6, 2 * len(cands))
+        for attempt in range(tries):
+            base, key, mdl = cands[attempt % len(cands)]
             try:
                 r = _post(base + "/chat/completions", {"Authorization": f"Bearer {key}"},
                           {"model": mdl, "max_tokens": 3000, "messages": [
@@ -150,11 +156,10 @@ def ask_ai(image_path, user_text):
                     return r["choices"][0]["message"]["content"]
                 err = RuntimeError(f"пустой ответ от {mdl}: {str(r)[:300]}")
             except RuntimeError as e:
-                err = e
-                if re.search(r"ошибкой (401|402)", str(e)):      # bad key / no money: retrying is useless
-                    raise
-            print(f"  {mdl} не ответил, пробую следующую ({attempt + 1}/8)...", flush=True)
-            time.sleep(min(30, 5 * (attempt + 1)))
+                err = RuntimeError(f"{mdl}: {e}")
+            print(f"  {mdl} не ответил ({str(err)[:120]}), пробую дальше ({attempt + 1}/{tries})...", flush=True)
+            if (attempt + 1) % len(cands) == 0:
+                time.sleep(min(30, 8 * (attempt + 1) // len(cands)))
         raise err
     raise RuntimeError("Не задан ключ ИИ (ANTHROPIC_API_KEY или OPENROUTER_API_KEY)")
 
