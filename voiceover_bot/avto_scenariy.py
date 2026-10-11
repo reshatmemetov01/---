@@ -99,7 +99,7 @@ def _img_b64(path):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def _post(url, headers, body, timeout=180):
+def _post(url, headers, body, timeout=90):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -144,7 +144,7 @@ def ask_ai(image_path, user_text):
             add("https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"],
                 os.environ.get("OPENROUTER_MODEL") or "google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
         err = None
-        tries = max(6, 2 * len(cands))
+        tries = max(4, 2 * len(cands))
         for attempt in range(tries):
             base, key, mdl = cands[attempt % len(cands)]
             try:
