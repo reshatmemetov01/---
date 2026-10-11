@@ -8,7 +8,7 @@ python avto_scenariy.py КАРТИНКА [--hint "ответ 1"] [--out scen.txt
   AI_BASE_URL + AI_API_KEY       - любой OpenAI-совместимый сервис
 AI_MODEL - имя модели (по умолчанию подходящее для выбранного сервиса).
 """
-import argparse, base64, io, json, os, re, sys, urllib.request
+import argparse, base64, io, json, os, re, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -124,16 +124,31 @@ def ask_ai(image_path, user_text):
         return "".join(c.get("text", "") for c in r.get("content", []))
     if p == "openai":
         if os.environ.get("OPENROUTER_API_KEY"):
-            base, key, model = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"], os.environ.get("AI_MODEL", "anthropic/claude-sonnet-4.5")
+            base, key, model = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"], os.environ.get("AI_MODEL", "google/gemma-4-31b-it:free,thinkingmachines/inkling:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
         else:
             base, key, model = os.environ["AI_BASE_URL"].rstrip("/"), os.environ["AI_API_KEY"], os.environ.get("AI_MODEL", "")
-        r = _post(base + "/chat/completions", {"Authorization": f"Bearer {key}"},
-                  {"model": model, "max_tokens": 3000, "messages": [
-                      {"role": "system", "content": system},
-                      {"role": "user", "content": [
-                          {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                          {"type": "text", "text": user_text}]}]})
-        return r["choices"][0]["message"]["content"]
+        # AI_MODEL may list several models via comma: free ones are often busy (429), so rotate and retry
+        models = [x.strip() for x in model.split(",") if x.strip()] or [model]
+        err = None
+        for attempt in range(8):
+            mdl = models[attempt % len(models)]
+            try:
+                r = _post(base + "/chat/completions", {"Authorization": f"Bearer {key}"},
+                          {"model": mdl, "max_tokens": 3000, "messages": [
+                              {"role": "system", "content": system},
+                              {"role": "user", "content": [
+                                  {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                                  {"type": "text", "text": user_text}]}]})
+                if r.get("choices") and r["choices"][0]["message"].get("content"):
+                    return r["choices"][0]["message"]["content"]
+                err = RuntimeError(f"пустой ответ от {mdl}: {str(r)[:300]}")
+            except RuntimeError as e:
+                err = e
+                if not re.search(r"ошибкой (429|5\d\d)", str(e)):
+                    raise
+            print(f"  {mdl} занят, пробую ещё ({attempt + 1}/8)...", flush=True)
+            time.sleep(min(30, 5 * (attempt + 1)))
+        raise err
     raise RuntimeError("Не задан ключ ИИ (ANTHROPIC_API_KEY или OPENROUTER_API_KEY)")
 
 
