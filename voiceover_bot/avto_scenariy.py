@@ -108,6 +108,36 @@ def _post(url, headers, body, timeout=90):
         raise RuntimeError(f"ИИ ответил ошибкой {e.code}: {e.read().decode('utf-8', 'replace')[:500]}")
 
 
+def _chat_stream(url, key, body, timeout=90):
+    """OpenAI-compatible chat with stream=True: long answers do not hit gateway timeouts; returns the text."""
+    body = dict(body, stream=True)
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    out = []
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    j = json.loads(data)
+                except ValueError:
+                    continue
+                if j.get("error"):
+                    raise RuntimeError(f"ИИ ответил ошибкой {j['error'].get('code', '')}: {str(j['error'])[:300]}")
+                for ch in j.get("choices") or []:
+                    out.append((ch.get("delta") or {}).get("content") or "")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"ИИ ответил ошибкой {e.code}: {e.read().decode('utf-8', 'replace')[:500]}")
+    except (TimeoutError, OSError) as e:
+        raise RuntimeError(f"ИИ не ответил вовремя: {e}")
+    return "".join(out)
+
+
 def provider():
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
@@ -148,15 +178,15 @@ def ask_ai(image_path, user_text):
         for attempt in range(tries):
             base, key, mdl = cands[attempt % len(cands)]
             try:
-                r = _post(base + "/chat/completions", {"Authorization": f"Bearer {key}"},
-                          {"model": mdl, "max_tokens": 3000, "messages": [
-                              {"role": "system", "content": system},
-                              {"role": "user", "content": [
-                                  {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                                  {"type": "text", "text": user_text}]}]})
-                if r.get("choices") and r["choices"][0]["message"].get("content"):
-                    return r["choices"][0]["message"]["content"]
-                err = RuntimeError(f"пустой ответ от {mdl}: {str(r)[:300]}")
+                txt = _chat_stream(base + "/chat/completions", key,
+                                   {"model": mdl, "max_tokens": 6000, "messages": [
+                                       {"role": "system", "content": system},
+                                       {"role": "user", "content": [
+                                           {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                                           {"type": "text", "text": user_text}]}]})
+                if len(txt.strip()) > 200:
+                    return txt
+                err = RuntimeError(f"пустой ответ от {mdl}")
             except RuntimeError as e:
                 err = RuntimeError(f"{mdl}: {e}")
             print(f"  {mdl} не ответил ({str(err)[:120]}), пробую дальше ({attempt + 1}/{tries})...", flush=True)
