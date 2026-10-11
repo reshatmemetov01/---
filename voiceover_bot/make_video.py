@@ -16,7 +16,10 @@ from pathlib import Path
 
 import edge_tts
 
-import smartscenes
+try:                      # numpy inside; on old VPS CPUs new numpy cannot even load - only video splitting needs it
+    import smartscenes
+except Exception:  # noqa: BLE001
+    smartscenes = None
 import videovoice
 
 CACHE_DIR = Path(__file__).parent / ".tts_cache"
