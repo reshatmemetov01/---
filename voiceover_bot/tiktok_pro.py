@@ -354,7 +354,7 @@ async def build(a):
     objects = marks.get("objects", [])
 
     base, vname, vrole = make_synth(a.engine, a.voice, a.role)
-    synth = make_cached_synth(base, a.engine, vname, vrole, "+0Hz", 40)
+    synth = make_cached_synth(base, a.engine, vname, vrole, "+0Hz", len(split_sentences(hook)) + len(split_sentences(question)) + len(split_sentences(expl)) + 1)
     tmp = Path(tempfile.mkdtemp(prefix="ttpro_"))
     n = [0]
 
@@ -377,6 +377,7 @@ async def build(a):
         nonlocal t
         allw = []
         for s in split_sentences(text):
+            if not _speakable(s).strip(): continue
             p, d = await say(s)
             clips.append((p, d)); gaps.append(gap_after)
             wt = [(w, t + tt) for w, tt in word_times(s, d)]
