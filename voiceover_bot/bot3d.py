@@ -13,6 +13,7 @@
 Картинку со сценарием можно отправить и одним сообщением: сценарий в подписи к фото.
 """
 import asyncio
+import json
 import logging
 import os
 import re
@@ -35,7 +36,22 @@ VOICE = os.environ.get("BOT3D_VOICE", "anton")
 OUT_DIR = Path(os.environ.get("BOT3D_OUT", str(Path.home() / "Desktop" / "пдд тик ток")))
 WORK = Path(tempfile.gettempdir()) / "bot3d"
 
+SETTINGS = HERE / "bot3d_settings.json"
+VOICES = ["anton", "ermil", "zahar", "alexander", "kirill", "filipp"]
+SAMPLE = "Смотри: грузовик едет по главной, а мы на второстепенной. Кто на главной, тот и король! Так что ждём."
+
 logging.basicConfig(level=logging.INFO)
+
+
+def settings() -> dict:
+    try:
+        return json.loads(SETTINGS.read_text(encoding="utf-8"))
+    except Exception:
+        return {"voice": VOICE, "speed": os.environ.get("YANDEX_SPEED", "1.15")}
+
+
+def role_for(v: str) -> str:
+    return "" if v == "filipp" else "good"
 dp = Dispatcher()
 CARDS: dict[int, Path] = {}                              # user -> последняя картинка
 HINTS: dict[int, str] = {}                               # user -> подпись к фото ("ответ 1" и т.п.)
@@ -53,8 +69,44 @@ async def cmd_start(m: Message) -> None:
         "1. Пришли картинку вопроса.\n"
         "2. Пришли сценарий - текстом или .txt файлом.\n"
         "3. Жди видео (10-20 минут).\n\n"
-        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\n"
+        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\nГолоса: /golosa\n"
         f"Твой id: {m.from_user.id}")
+
+
+@dp.message(Command("golosa"))
+async def cmd_voices(m: Message) -> None:
+    if not allowed(m):
+        return
+    parts = (m.text or "").split()
+    speed = parts[1] if len(parts) > 1 else "1.35"
+    await m.answer(f"Делаю образцы голосов на скорости {speed}...")
+    from auto_quiz import synth_yandex_v3
+    key = os.environ.get("YANDEX_API_KEY", "")
+    for v in VOICES:
+        def run():
+            os.environ["YANDEX_SPEED"] = speed
+            return synth_yandex_v3(SAMPLE, v, key, role_for(v), retries=2)
+        try:
+            data = await asyncio.to_thread(run)
+            await m.answer_audio(BufferedInputFile(data, filename=f"{v}_{speed}.mp3"), caption=f"/golos {v} {speed}")
+        except Exception as e:
+            await m.answer(f"{v}: не получилось ({str(e)[:100]})")
+    os.environ["YANDEX_SPEED"] = settings()["speed"]
+    await m.answer("Нажми на подпись под понравившимся, чтобы выбрать. Другая скорость: /golosa 1.5")
+
+
+@dp.message(Command("golos"))
+async def cmd_voice(m: Message) -> None:
+    if not allowed(m):
+        return
+    parts = (m.text or "").split()
+    cur = settings()
+    if len(parts) >= 2 and parts[1] in VOICES:
+        cur["voice"] = parts[1]
+    if len(parts) >= 3:
+        cur["speed"] = parts[2].replace(",", ".")
+    SETTINGS.write_text(json.dumps(cur), encoding="utf-8")
+    await m.answer(f"Голос для видео: {cur['voice']}, скорость {cur['speed']}.\nОбразцы: /golosa")
 
 
 @dp.message(Command("obrazec"))
@@ -171,10 +223,10 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
         out = OUT_DIR / f"3d_{stamp}.mp4"
         status = await m.answer("Начал. Озвучиваю...")
         cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
-               "--out", str(out), "--engine", ENGINE, "--voice", VOICE]
+               "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
         proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(HERE), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT,
-                                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                                                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})
         tail, last_edit = [], 0.0
         while True:
             line = await proc.stdout.readline()
