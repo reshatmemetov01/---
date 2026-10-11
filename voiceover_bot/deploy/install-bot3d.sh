@@ -26,7 +26,7 @@ APP="$DIR/voiceover_bot"
 echo "==> Ставлю Python-пакеты (пару минут)..."
 python3 -m venv "$DIR/venv"
 "$DIR/venv/bin/pip" install -q -U pip
-"$DIR/venv/bin/pip" install -q "aiogram>=3.4,<4" edge-tts imageio-ffmpeg Pillow numpy "playwright>=1.40" yandex-speechkit
+"$DIR/venv/bin/pip" install -q "aiogram>=3.4,<4" edge-tts imageio-ffmpeg Pillow "numpy<2.3" "playwright>=1.40" yandex-speechkit
 echo "==> Ставлю браузер Chromium для рендера..."
 "$DIR/venv/bin/python" -m playwright install --with-deps chromium
 
