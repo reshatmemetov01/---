@@ -126,9 +126,9 @@ function plateTex(from, main, border = true) {
   g.fillStyle = "#fff"; g.fillRect(0, 0, 256, 256); if (border) { g.lineWidth = 10; g.strokeStyle = "#222"; g.strokeRect(5, 5, 246, 246); }
   g.strokeStyle = "#111"; g.lineCap = "square"; g.lineJoin = "miter";
   const end = (arm) => { const [px, py] = plateCoords(arm, from); return [128 + px * 100, 128 - py * 100]; };
-  g.lineWidth = 12;
+  g.lineWidth = 8;
   for (const a of ["N", "S", "E", "W"]) if (armOpen(a)) { const [x, y] = end(a); g.beginPath(); g.moveTo(128, 128); g.lineTo(x, y); g.stroke(); }
-  if (main.length === 2) { g.lineWidth = 34; const [x1, y1] = end(main[0]), [x2, y2] = end(main[1]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(128, 128); g.lineTo(x2, y2); g.stroke(); }
+  if (main.length === 2) { g.lineWidth = 40; const [x1, y1] = end(main[0]), [x2, y2] = end(main[1]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(128, 128); g.lineTo(x2, y2); g.stroke(); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 const SIGN = {};
@@ -136,11 +136,11 @@ if (SC.sign) {
   const {kind, from} = SC.sign, th = TH[from], [x, z] = rot(7.4, 11.4, th), g = new THREE.Group();
   const withPlate = SC.main.length === 2 && ARM[SC.main[0]][0] !== -ARM[SC.main[1]][0] || (SC.main.length === 2 && ARM[SC.main[0]][1] !== -ARM[SC.main[1]][1]);
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 4.2, 8), mat("#8a8f96")); pole.position.y = 2.1; pole.castShadow = true; g.add(pole);
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({map: signTex(kind), transparent: true})); front.position.set(0, 3.65, 0.07); g.add(front);
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat("#9aa0a6", {side: THREE.BackSide})); back.position.set(0, 3.65, 0.05); g.add(back);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({map: signTex(kind), transparent: true})); front.position.set(0, 3.65, 0.12); g.add(front);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat("#9aa0a6", {side: THREE.BackSide})); back.position.set(0, 3.65, 0.09); g.add(back);
   if (withPlate) {
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshBasicMaterial({map: plateTex(from, SC.main)})); p.position.set(0, 2.45, 0.07); g.add(p);
-    box(1.0, 1.0, 0.03, "#9aa0a6", 0, 2.45, 0.04, g, false);
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshBasicMaterial({map: plateTex(from, SC.main)})); p.position.set(0, 2.45, 0.12); g.add(p);
+    box(1.0, 1.0, 0.03, "#9aa0a6", 0, 2.45, 0.09, g, false);
   }
   g.position.set(x, 0.25, z); g.rotation.y = th; scene.add(g);
   SIGN.group = g; SIGN.th = th; SIGN.plate = withPlate; SIGN.from = from;
@@ -321,7 +321,7 @@ function crossPoint(a, b) {
 
 // ================================================================== camera shots
 const SHOTS = {
-  "сверху": () => [V(0, 66, 27), V(0, 0, 2)],
+  "сверху": () => [V(0, 70, 24), V(0, 0, -2)],
   "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
   "перекресток": () => [V(17, 19, 30), V(-1, 0, 0)],
   "знак": (k) => { const c = SIGN.top || V(0, 3, 0), d = lerp(10, 7, ez(k)); const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },

@@ -1,8 +1,8 @@
 """blog3d: 3D-ролик "как у блогера" по простому текстовому сценарию.
 
-python blog3d.py --card КАРТИНКА --scenario сценарий15.txt --out ролик.mp4 [--engine yandex3 --voice anton]
+python blog3d.py --card КАРТИНКА --scenario scenariy15.txt --out ролик.mp4 [--engine yandex3 --voice anton]
 
-Сценарий - обычный текст (см. сценарий15.txt): шапка про перекрёсток и вопрос,
+Сценарий - обычный текст (см. scenariy15.txt): шапка про перекрёсток и вопрос,
 дальше кадры через ---. Субтитров нет: текст только на плашках и бирках.
 """
 import argparse, asyncio, json, os, re, shutil, subprocess, sys, tempfile, time
