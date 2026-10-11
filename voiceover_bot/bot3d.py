@@ -88,11 +88,12 @@ async def cmd_voices(m: Message) -> None:
             return synth_yandex_v3(SAMPLE, v, key, role_for(v), retries=2)
         try:
             data = await asyncio.to_thread(run)
-            await m.answer_audio(BufferedInputFile(data, filename=f"{v}_{speed}.mp3"), caption=f"/golos {v} {speed}")
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"✅ Выбрать {v}", callback_data=f"setv:{v}:{speed}")]])
+            await m.answer_audio(BufferedInputFile(data, filename=f"{v}_{speed}.mp3"), caption=f"{v}, скорость {speed}", reply_markup=kb)
         except Exception as e:
             await m.answer(f"{v}: не получилось ({str(e)[:100]})")
     os.environ["YANDEX_SPEED"] = settings()["speed"]
-    await m.answer("Нажми на подпись под понравившимся, чтобы выбрать. Другая скорость: /golosa 1.5")
+    await m.answer("Жми «Выбрать» под понравившимся. Другая скорость: /golosa 1.5")
 
 
 @dp.message(Command("golos"))
@@ -107,6 +108,16 @@ async def cmd_voice(m: Message) -> None:
         cur["speed"] = parts[2].replace(",", ".")
     SETTINGS.write_text(json.dumps(cur), encoding="utf-8")
     await m.answer(f"Голос для видео: {cur['voice']}, скорость {cur['speed']}.\nОбразцы: /golosa")
+
+
+@dp.callback_query(F.data.startswith("setv:"))
+async def cb_setv(cb: CallbackQuery) -> None:
+    if OWNER and str(cb.from_user.id) != OWNER:
+        return
+    _, v, sp = cb.data.split(":")
+    SETTINGS.write_text(json.dumps({"voice": v, "speed": sp}), encoding="utf-8")
+    await cb.answer(f"Выбран {v}, {sp}")
+    await cb.message.answer(f"Голос для видео: {v}, скорость {sp}.")
 
 
 @dp.message(Command("obrazec"))
