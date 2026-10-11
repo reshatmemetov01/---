@@ -23,7 +23,9 @@ from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+import avto_scenariy
 
 HERE = Path(__file__).resolve().parent
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -36,6 +38,7 @@ WORK = Path(tempfile.gettempdir()) / "bot3d"
 logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
 CARDS: dict[int, Path] = {}                              # user -> последняя картинка
+HINTS: dict[int, str] = {}                               # user -> подпись к фото ("ответ 1" и т.п.)
 LOCK = asyncio.Lock()                                    # один рендер за раз
 
 
@@ -50,7 +53,7 @@ async def cmd_start(m: Message) -> None:
         "1. Пришли картинку вопроса.\n"
         "2. Пришли сценарий - текстом или .txt файлом.\n"
         "3. Жди видео (10-20 минут).\n\n"
-        "Образец сценария: /obrazec\n"
+        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\n"
         f"Твой id: {m.from_user.id}")
 
 
@@ -78,7 +81,46 @@ async def on_photo(m: Message, bot: Bot) -> None:
     if m.caption and len(m.caption) > 40:
         await run_job(m, bot, m.caption)
     else:
+        await ask_mode(m, m.caption or "")
+
+
+async def ask_mode(m: Message, hint: str) -> None:
+    HINTS[m.from_user.id] = hint
+    if not avto_scenariy.provider():
         await m.answer("Картинку принял. Теперь пришли сценарий (текстом или .txt).")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🤖 Придумай сам", callback_data="auto"),
+        InlineKeyboardButton(text="✍️ Пришлю свой текст", callback_data="own")]])
+    await m.answer("Картинку принял. Текст придумать самому или пришлёшь свой?\n"
+                   "(подсказка: в подписи к фото можно написать «ответ 1», чтобы я точно не ошибся)", reply_markup=kb)
+
+
+@dp.callback_query(F.data == "own")
+async def cb_own(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await cb.message.answer("Жду сценарий - текстом или .txt файлом. Образец: /obrazec")
+
+
+@dp.callback_query(F.data == "auto")
+async def cb_auto(cb: CallbackQuery, bot: Bot) -> None:
+    await cb.answer()
+    uid = cb.from_user.id
+    if OWNER and str(uid) != OWNER:
+        return
+    if uid not in CARDS:
+        await cb.message.answer("Сначала пришли картинку.")
+        return
+    await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.message.answer("Смотрю картинку и пишу сценарий (до минуты)...")
+    try:
+        text = await asyncio.to_thread(avto_scenariy.make, str(CARDS[uid]), HINTS.get(uid, ""))
+    except Exception as e:
+        await cb.message.answer(f"ИИ не смог: {e}\nПришли сценарий сам (/obrazec).")
+        return
+    await cb.message.answer_document(BufferedInputFile(text.encode("utf-8"), filename="scenariy.txt"),
+                                     caption="Вот сценарий. Собираю видео. Если что-то не так - поправь файл и пришли мне.")
+    await run_job(cb.message, bot, text, uid=uid)
 
 
 @dp.message(F.document)
@@ -89,7 +131,7 @@ async def on_document(m: Message, bot: Bot) -> None:
     if name.endswith((".png", ".jpg", ".jpeg", ".webp")):
         p = await save_file(bot, m.document.file_id, WORK / f"card_{m.from_user.id}{Path(name).suffix}")
         CARDS[m.from_user.id] = p
-        await m.answer("Картинку принял. Теперь пришли сценарий (текстом или .txt).")
+        await ask_mode(m, m.caption or "")
     elif name.endswith(".txt"):
         p = await save_file(bot, m.document.file_id, WORK / f"scen_{m.from_user.id}.txt")
         raw = p.read_bytes()
@@ -113,8 +155,8 @@ async def on_text(m: Message, bot: Bot) -> None:
     await run_job(m, bot, m.text)
 
 
-async def run_job(m: Message, bot: Bot, scenario: str) -> None:
-    uid = m.from_user.id
+async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -> None:
+    uid = uid or m.from_user.id
     card = CARDS.get(uid)
     if not card:
         await m.answer("Сначала пришли картинку вопроса, потом сценарий.")
