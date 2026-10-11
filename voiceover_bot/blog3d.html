@@ -1,0 +1,535 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&display=block" rel="stylesheet">
+<style>
+@font-face{font-family:M;src:url(mont_900_cyrillic.woff2) format("woff2");unicode-range:U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;font-weight:100 900;}
+@font-face{font-family:M;src:url(mont_900_latin.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F;font-weight:100 900;}
+html,body{margin:0;width:720px;height:1280px;overflow:hidden;background:#bcd9f0;}
+canvas{position:absolute;left:0;top:0;width:720px;height:1280px;}
+</style></head><body>
+<canvas id="gl" width="720" height="1280"></canvas>
+<canvas id="ov" width="720" height="1280"></canvas>
+<script type="importmap">{"imports":{"three":"__THREE__"}}</script>
+<script type="module">
+import * as THREE from "three";
+const TL = __TL__;
+const SC = TL.scene;
+const W = 720, H = 1280, LIME = "#B9F64A", RED = "#FF5A4F", FONT = "M, Montserrat, Arial";
+const ez = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ================================================================== renderer / light
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: true, preserveDrawingBuffer: true});
+renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#bcd9f0"); scene.fog = new THREE.Fog("#bcd9f0", 110, 230);
+const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
+scene.add(new THREE.HemisphereLight("#eef6ff", "#8d927e", 1.05));
+const sun = new THREE.DirectionalLight("#ffffff", 1.35);
+sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, {left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 200});
+scene.add(sun);
+const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({color: c}, o));
+function box(w, h, d, c, x, y, z, parent = scene, shadow = true) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof c === "string" ? mat(c) : c);
+  m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m;
+}
+
+// ================================================================== directions
+// local frame "S": lane x=+3, coming from +z, heading -z.  world = R_y(theta) * local
+const TH = {S: 0, N: Math.PI, E: Math.PI / 2, W: -Math.PI / 2};
+const ARM = {N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0]};
+const rot = (x, z, th) => [x * Math.cos(th) + z * Math.sin(th), -x * Math.sin(th) + z * Math.cos(th)];
+const yawOf = (dx, dz) => Math.atan2(-dx, -dz);
+
+// ================================================================== static city
+const road = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), mat("#55595f"));
+road.rotation.x = -Math.PI / 2; road.receiveShadow = true; scene.add(road);
+const RW = 6;
+const brick = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+  g.fillStyle = "#a8615a"; g.fillRect(0, 0, 64, 64); g.fillStyle = "#8f4f49";
+  for (let y = 0; y < 64; y += 8) for (let x = (y / 8) % 2 ? 0 : 8; x < 64; x += 16) g.fillRect(x, y, 15, 7);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); return t; })();
+for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+  box(120, 0.25, 120, new THREE.MeshLambertMaterial({map: brick}), sx * (RW + 60), 0.125, sz * (RW + 60), scene, false);
+  box(120, 0.05, 120, "#6fbf4a", sx * (RW + 3.6 + 60), 0.27, sz * (RW + 3.6 + 60), scene, false);
+}
+const white = mat("#f4f4f2");
+for (let s = 12; s < 200; s += 4) for (const sg of [-1, 1]) {
+  box(0.22, 0.02, 2, white, 0, 0.02, sg * s, scene, false); box(2, 0.02, 0.22, white, sg * s, 0.02, 0, scene, false);
+}
+// stop lines
+for (const f of ["S", "N", "E", "W"]) { const [x, z] = rot(3, 10.4, TH[f]); const g = box(5.6, 0.02, 0.4, white, x, 0.02, z, scene, false); g.rotation.y = TH[f]; }
+// T-junction: cover the missing arm
+if (SC.missing) {
+  const [ax, az] = ARM[SC.missing];
+  const g = new THREE.Group(); box(13, 0.26, 120, new THREE.MeshLambertMaterial({map: brick}), 0, 0.13, 0, g, false); box(13, 0.06, 116, "#6fbf4a", 0, 0.28, 2, g, false);
+  g.position.set(ax * (RW + 60), 0, az * (RW + 60)); g.rotation.y = TH[SC.missing]; scene.add(g);
+}
+function facadeTex(base) {
+  const c = document.createElement("canvas"); c.width = 128; c.height = 256;
+  const g = c.getContext("2d"); g.fillStyle = base; g.fillRect(0, 0, 128, 256);
+  for (let y = 18; y < 250; y += 34) for (let x = 12; x < 120; x += 28) { g.fillStyle = "#f7f7f2"; g.fillRect(x - 2, y - 2, 20, 24); g.fillStyle = "#4f6f8c"; g.fillRect(x, y, 16, 20); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+const pastel = ["#e9cfa2", "#efe1c0", "#f0d7b3", "#e3c9a3", "#f2e6cf", "#e6d2b0"];
+let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < 7; i++) {
+  const w = 10 + rnd() * 5, d = 9 + rnd() * 4, h = 9 + rnd() * 10, along = i * 16 + 6;
+  const x = sx * (RW + 11 + w / 2), z = sz * (RW + 12 + along);
+  const tex = facadeTex(pastel[Math.floor(rnd() * pastel.length)]); tex.repeat.set(Math.max(1, w / 4), Math.max(1, h / 8));
+  box(w, h, d, new THREE.MeshLambertMaterial({map: tex}), x, h / 2 + 0.25, z); box(w + 0.4, 0.6, d + 0.4, "#8a7f74", x, h + 0.55, z);
+  if (i < 5) {
+    const tex2 = facadeTex(pastel[(i + 2) % pastel.length]); tex2.repeat.set(3, Math.max(1, h / 8));
+    const x2 = sx * (RW + 12 + along), z2 = sz * (RW + 11 + d / 2);
+    box(d, h * 0.9, w, new THREE.MeshLambertMaterial({map: tex2}), x2, h * 0.45 + 0.25, z2); box(d + 0.4, 0.6, w + 0.4, "#8a7f74", x2, h * 0.9 + 0.55, z2);
+  }
+}
+const leaf = new THREE.MeshLambertMaterial({color: "#8ccf5e", flatShading: true}), trunk = mat("#7a5a3c");
+function tree(x, z, s = 1) {
+  const g = new THREE.Group();
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * s, 0.25 * s, 2.4 * s, 6), trunk); t.position.y = 1.2 * s; t.castShadow = true; g.add(t);
+  for (const [dx, dy, dz, r] of [[0, 3.3, 0, 1.6], [0.7, 4.0, 0.3, 1.2], [-0.6, 3.8, -0.4, 1.15]]) {
+    const l = new THREE.Mesh(new THREE.IcosahedronGeometry(r * s, 1), leaf); l.position.set(dx * s, dy * s, dz * s); l.castShadow = true; g.add(l);
+  }
+  g.position.set(x, 0.25, z); scene.add(g);
+}
+const armOpen = (d) => d !== SC.missing;
+for (let s = 20; s < 130; s += 9) for (const sg of [-1, 1]) {
+  if (armOpen(sg < 0 ? "N" : "S")) { tree(8.4, sg * s, 0.9 + (s % 3) * 0.1); tree(-8.4, sg * s, 0.95); }
+  if (armOpen(sg < 0 ? "W" : "E")) { tree(sg * s, 8.4, 0.9); tree(sg * s, -8.4, 1.0); }
+}
+
+// ================================================================== signs
+function signTex(kind) {
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  if (kind === "main") {
+    g.translate(128, 128); g.rotate(Math.PI / 4);
+    g.fillStyle = "#222"; g.fillRect(-92, -92, 184, 184); g.fillStyle = "#fff"; g.fillRect(-86, -86, 172, 172);
+    g.fillStyle = "#F7C800"; g.fillRect(-52, -52, 104, 104);
+  } else {
+    g.lineJoin = "round"; g.beginPath(); g.moveTo(14, 30); g.lineTo(242, 30); g.lineTo(128, 236); g.closePath(); g.fillStyle = "#D7261E"; g.fill();
+    g.beginPath(); g.moveTo(60, 56); g.lineTo(196, 56); g.lineTo(128, 180); g.closePath(); g.fillStyle = "#fff"; g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+// plate 8.13 as seen by a driver coming from `from`: up = ahead
+function plateCoords(arm, from) {
+  const h = ARM[from].map(v => -v), r = [-h[1], h[0]], v = ARM[arm];
+  return [v[0] * r[0] + v[1] * r[1], v[0] * h[0] + v[1] * h[1]];
+}
+function plateTex(from, main, border = true) {
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, 256, 256); if (border) { g.lineWidth = 10; g.strokeStyle = "#222"; g.strokeRect(5, 5, 246, 246); }
+  g.strokeStyle = "#111"; g.lineCap = "square"; g.lineJoin = "miter";
+  const end = (arm) => { const [px, py] = plateCoords(arm, from); return [128 + px * 100, 128 - py * 100]; };
+  g.lineWidth = 12;
+  for (const a of ["N", "S", "E", "W"]) if (armOpen(a)) { const [x, y] = end(a); g.beginPath(); g.moveTo(128, 128); g.lineTo(x, y); g.stroke(); }
+  if (main.length === 2) { g.lineWidth = 34; const [x1, y1] = end(main[0]), [x2, y2] = end(main[1]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(128, 128); g.lineTo(x2, y2); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const SIGN = {};
+if (SC.sign) {
+  const {kind, from} = SC.sign, th = TH[from], [x, z] = rot(7.4, 11.4, th), g = new THREE.Group();
+  const withPlate = SC.main.length === 2 && ARM[SC.main[0]][0] !== -ARM[SC.main[1]][0] || (SC.main.length === 2 && ARM[SC.main[0]][1] !== -ARM[SC.main[1]][1]);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 4.2, 8), mat("#8a8f96")); pole.position.y = 2.1; pole.castShadow = true; g.add(pole);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({map: signTex(kind), transparent: true})); front.position.set(0, 3.65, 0.07); g.add(front);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat("#9aa0a6", {side: THREE.BackSide})); back.position.set(0, 3.65, 0.05); g.add(back);
+  if (withPlate) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshBasicMaterial({map: plateTex(from, SC.main)})); p.position.set(0, 2.45, 0.07); g.add(p);
+    box(1.0, 1.0, 0.03, "#9aa0a6", 0, 2.45, 0.04, g, false);
+  }
+  g.position.set(x, 0.25, z); g.rotation.y = th; scene.add(g);
+  SIGN.group = g; SIGN.th = th; SIGN.plate = withPlate; SIGN.from = from;
+  const loc = (lx, ly) => { const [wx, wz] = rot(lx, 0.1, th); return V(x + wx, 0.25 + ly, z + wz); };
+  SIGN.top = loc(0, 3.65); SIGN.plateC = loc(0, 2.45);
+  if (withPlate) {
+    const thick = SC.main.find(a => a !== from) || SC.main[0], thin = ["W", "E", "N", "S"].find(a => armOpen(a) && !SC.main.includes(a) && a !== from) || from;
+    const [tx, ty] = plateCoords(thick, from), [nx, ny] = plateCoords(thin, from);
+    SIGN.thick = loc(tx * 0.33, 2.45 + ty * 0.33); SIGN.thin = loc(nx * 0.33, 2.45 + ny * 0.33);
+  }
+}
+
+// ================================================================== vehicles
+function car(color) {
+  const g = new THREE.Group();
+  function prof(pts, width, m, bevel = 0.07) {
+    const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) sh.lineTo(p[0], p[1]); sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, {depth: width - 2 * bevel, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 3});
+    geo.translate(0, 0, -(width - 2 * bevel) / 2); geo.rotateY(Math.PI / 2);
+    const me = new THREE.Mesh(geo, m); me.castShadow = true; me.receiveShadow = true; g.add(me); return me;
+  }
+  const paint = new THREE.MeshStandardMaterial({color, metalness: 0.35, roughness: 0.38});
+  const glass = new THREE.MeshStandardMaterial({color: "#26323d", metalness: 0.6, roughness: 0.15});
+  prof([[-2.2, 0.34], [2.2, 0.34], [2.28, 0.55], [2.18, 0.84], [0.95, 0.99], [-1.3, 1.02], [-2.12, 0.97], [-2.26, 0.66]], 1.96, paint);
+  prof([[0.98, 0.98], [0.22, 1.5], [-0.82, 1.5], [-1.32, 1.0]], 1.72, glass, 0.05);
+  prof([[0.26, 1.47], [-0.8, 1.47], [-0.82, 1.56], [0.2, 1.56]], 1.74, paint, 0.04);
+  const tire = mat("#1b1c1f"), rim = new THREE.MeshStandardMaterial({color: "#c9ced4", metalness: 0.8, roughness: 0.3});
+  for (const sx of [-1, 1]) for (const sz of [-1.38, 1.38]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 18), tire); w.rotation.z = Math.PI / 2; w.position.set(sx * 0.9, 0.4, sz); w.castShadow = true; g.add(w);
+    const r = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.32, 14), rim); r.rotation.z = Math.PI / 2; r.position.set(sx * 0.91, 0.4, sz); g.add(r);
+  }
+  const head = new THREE.MeshBasicMaterial({color: "#fff8d8"}), tail = new THREE.MeshBasicMaterial({color: "#d3201a"});
+  for (const sx of [-0.66, 0.66]) { box(0.46, 0.16, 0.08, head, sx, 0.74, -2.27, g, false); box(0.42, 0.16, 0.08, tail, sx, 0.8, 2.26, g, false); }
+  box(0.9, 0.1, 0.06, "#2a2d31", 0, 0.5, -2.31, g, false);
+  g.userData = {half: 2.3, h: 1.6, bz: 2.24, bx: 0.8, by: 0.9}; return g;
+}
+function truck(color) {
+  const g = new THREE.Group(), cab = mat(color || "#2f6fd8"), dark = mat("#2a2e33");
+  box(2.4, 0.5, 8.0, dark, 0, 0.75, 0, g);                                  // chassis
+  box(2.5, 1.9, 2.1, cab, 0, 1.95, -2.85, g); box(2.5, 0.5, 0.6, cab, 0, 1.2, -4.0, g);
+  box(2.3, 0.8, 0.06, "#26323d", 0, 2.35, -3.92, g, false);                  // windshield
+  box(2.0, 0.42, 0.06, "#9aa3ad", 0, 1.15, -4.31, g, false);                 // grille
+  box(2.56, 1.6, 5.2, mat("#4d6f9c"), 0, 2.0, 1.3, g); box(2.62, 0.12, 5.26, mat("#3b5a83"), 0, 2.8, 1.3, g);
+  const tire = mat("#1b1c1f");
+  for (const sx of [-1, 1]) for (const sz of [-2.9, 1.0, 2.6]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.42, 16), tire); w.rotation.z = Math.PI / 2; w.position.set(sx * 1.08, 0.55, sz); w.castShadow = true; g.add(w);
+  }
+  const head = new THREE.MeshBasicMaterial({color: "#fff8d8"});
+  for (const sx of [-0.85, 0.85]) box(0.4, 0.22, 0.08, head, sx, 1.15, -4.32, g, false);
+  g.userData = {half: 4.3, h: 3.0, bz: 4.33, bx: 1.15, by: 1.4}; return g;
+}
+function bus(color) {
+  const g = new THREE.Group();
+  box(2.6, 2.7, 11, "#f3f4f2", 0, 1.75, 0, g); box(2.62, 0.55, 11.02, color || "#2fa84f", 0, 0.75, 0, g);
+  box(2.64, 0.95, 9.6, "#2b3540", 0, 2.25, -0.2, g); box(2.4, 1.2, 0.06, "#2b3540", 0, 2.0, -5.52, g, false);
+  for (const sx of [-1, 1]) for (const sz of [-3.4, 3.6]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.4, 12), mat("#1d1f22")); w.rotation.z = Math.PI / 2; w.position.set(sx * 1.2, 0.55, sz); g.add(w);
+  }
+  g.userData = {half: 5.5, h: 3.1, bz: 5.52, bx: 1.2, by: 1.0}; return g;
+}
+function pathLocal(move, stop) {
+  if (move === "left") return new THREE.QuadraticBezierCurve3(V(3, 0, stop), V(3, 0, -3.5), V(-11, 0, -3));
+  if (move === "right") return new THREE.QuadraticBezierCurve3(V(3, 0, stop), V(3, 0, 3), V(11, 0, 3));
+  return new THREE.LineCurve3(V(3, 0, stop), V(3, 0, -14));
+}
+const PALETTE = ["#e8e8ea", "#d64541", "#2b2f36", "#f1c40f", "#3aa0d8"];
+const ACT = {};
+SC.actors.forEach((a, i) => {
+  const n = a.id;
+  if (n.startsWith("грузов")) a.obj = truck("#2f6fd8");
+  else if (n.startsWith("автобус")) a.obj = bus();
+  else a.obj = car(n === "мы" ? "#ff7a1a" : PALETTE[i % PALETTE.length]);
+  scene.add(a.obj);
+  const u = a.obj.userData;
+  a.stop = 10.4 + u.half + 0.6;
+  a.curve = pathLocal(a.move, a.stop);
+  if (a.move !== "straight") { const m = new THREE.MeshBasicMaterial({color: "#ffae00"}), side = a.move === "right" ? 1 : -1;
+    a.blinkers = [box(0.3, 0.22, 0.12, m, side * u.bx, u.by, -u.bz, a.obj, false), box(0.3, 0.22, 0.12, m, side * u.bx, u.by, u.bz, a.obj, false)]; }
+  ACT[n] = a;
+});
+const GO = TL.go || {};
+function placeActor(a, t) {
+  const th = TH[a.from];
+  const set = (lx, lz, lyaw) => { const [x, z] = rot(lx, lz, th); a.obj.position.set(x, 0.25, z); a.obj.rotation.y = th + lyaw; };
+  const go = GO[a.id];
+  if (go === undefined || t < go) { set(3, a.stop + 18 * Math.pow(1 - ez(t / 2.6), 2), 0); }
+  else {
+    const k = t - go, d = a.move === "straight" ? 2.6 : 3.4, u = ez(Math.min(1, k / d));
+    if (u < 1) { const p = a.curve.getPoint(u), q = a.curve.getPoint(Math.min(1, u + 0.02)); set(p.x, p.z, yawOf(q.x - p.x, q.z - p.z) || 0); }
+    else { const e = a.curve.getPoint(1), q = a.curve.getPoint(0.98), dx = e.x - q.x, dz = e.z - q.z, l = Math.hypot(dx, dz);
+      set(e.x + dx / l * (k - d) * 8, e.z + dz / l * (k - d) * 8, yawOf(dx, dz)); }
+  }
+  if (a.blinkers) { const on = Math.floor(t * 2.2) % 2 === 0 && (go === undefined || t < go + 3.0); a.blinkers.forEach(b => b.visible = on); }
+}
+// world points of the actor's path, starting at its bumper
+function actorPath(a) {
+  const th = TH[a.from], pts = [];
+  for (let i = 0; i <= 60; i++) { const p = a.curve.getPoint(i / 60); const [x, z] = rot(p.x, p.z, th); pts.push(V(x, 0, z)); }
+  const e = pts[60], q = pts[58], d = e.clone().sub(q).normalize();
+  for (let i = 1; i <= 6; i++) pts.push(e.clone().addScaledVector(d, i * 2));
+  const st = pts[0].clone(), cut = a.obj.userData.half + 0.6;
+  return pts.filter(p => p.distanceTo(st) >= cut);
+}
+
+// ================================================================== ground ribbons (arrows, main road)
+function ribbon(pts, width, color, opacity, y) {
+  const pos = [], idx = [];
+  pts.forEach((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const tx = b.x - a.x, tz = b.z - a.z, l = Math.hypot(tx, tz) || 1, nx = -tz / l * width / 2, nz = tx / l * width / 2;
+    pos.push(p.x + nx, y, p.z + nz, p.x - nx, y, p.z - nz);
+    if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+  });
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false}));
+  m.renderOrder = 2; scene.add(m);
+  return {mesh: m, n: pts.length - 1, pts, base: opacity,
+    grow(k, alpha) { m.visible = k > 0 && alpha > 0; geo.setDrawRange(0, Math.floor(this.n * clamp(k)) * 6); m.material.opacity = this.base * alpha; }};
+}
+function arrowHead(w, color) {
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute([-w * 1.25, 0, 0, w * 1.25, 0, 0, 0, 0, -w * 1.9], 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color, transparent: true, side: THREE.DoubleSide, depthWrite: false})); m.renderOrder = 3; scene.add(m); return m;
+}
+const ARROWS = {};
+for (const a of Object.values(ACT)) {
+  const col = a.id === "мы" ? LIME : "#FFD23F", pts = actorPath(a);
+  ARROWS[a.id] = {rib: ribbon(pts, 1.5, col, 0.95, 0.09), head: arrowHead(0.75, col), pts};
+}
+function placeHead(ar, k, alpha) {
+  const i = Math.max(1, Math.floor(ar.rib.n * clamp(k))), p = ar.pts[i], q = ar.pts[i - 1];
+  ar.head.position.set(p.x, 0.095, p.z); ar.head.rotation.y = yawOf(p.x - q.x, p.z - q.z); ar.head.visible = k > 0 && alpha > 0; ar.head.material.opacity = 0.95 * alpha;
+}
+// main road bands
+const BANDS = [];
+const armPts = (a, from, to) => { const r = []; for (let s = from; s >= to - 1e-6; s -= 2) r.push(V(ARM[a][0] * s, 0, ARM[a][1] * s)); return r; };
+if (SC.main.length === 2) {
+  const [A, B] = SC.main, pts = armPts(A, 60, 8);
+  const straight = ARM[A][0] === -ARM[B][0] && ARM[A][1] === -ARM[B][1];
+  if (straight) for (let s = 6; s >= -60; s -= 2) pts.push(V(ARM[A][0] * s, 0, ARM[A][1] * s));
+  else {
+    const c = new THREE.QuadraticBezierCurve3(V(ARM[A][0] * 8, 0, ARM[A][1] * 8), V(0, 0, 0), V(ARM[B][0] * 8, 0, ARM[B][1] * 8));
+    for (let i = 1; i <= 16; i++) pts.push(c.getPoint(i / 16));
+    for (let s2 = 10; s2 <= 60; s2 += 2) pts.push(V(ARM[B][0] * s2, 0, ARM[B][1] * s2));
+  }
+  BANDS.push(ribbon(pts, 10, LIME, 0.5, 0.06));
+  for (const a of ["N", "S", "E", "W"]) if (armOpen(a) && !SC.main.includes(a)) {
+    const p2 = armPts(a, 60, 0); BANDS.push(ribbon(p2, 3.2, "#1f7a32", 0.75, 0.065));
+  }
+}
+const MAINPT = SC.main.length ? V(ARM[SC.main[0]][0] * 22, 0, ARM[SC.main[0]][1] * 22) : V(0, 0, 0);
+const SECARM = ["W", "E", "N", "S"].find(a => armOpen(a) && !SC.main.includes(a));
+const SECPT = SECARM ? V(ARM[SECARM][0] * 22, 0, ARM[SECARM][1] * 22) : V(0, 0, 0);
+// plate laid on the junction
+let BIGPLATE = null;
+if (SIGN.plate) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({map: plateTex(SIGN.from, SC.main), transparent: true, depthWrite: false}));
+  m.rotation.set(-Math.PI / 2, yawOf(-ARM[SIGN.from][0], -ARM[SIGN.from][1]), 0, "YXZ"); m.renderOrder = 4; m.visible = false; scene.add(m); BIGPLATE = m;
+}
+
+// ================================================================== targets
+function actorTop(id) { const a = ACT[id]; return a ? a.obj.position.clone().setY(a.obj.userData.h + 0.6) : null; }
+function target(name, t) {
+  if (ACT[name]) return actorTop(name);
+  if (name === "знак") return SIGN.top ? SIGN.top.clone().add(V(0, 0.8, 0)) : V(0, 0, 0);
+  if (name === "табличка") return SIGN.plateC || V(0, 0, 0);
+  if (name.startsWith("табличка.толст")) return SIGN.thick || V(0, 0, 0);
+  if (name.startsWith("табличка.тонк")) return SIGN.thin || V(0, 0, 0);
+  if (name.startsWith("главн")) return MAINPT.clone().setY(0.2);
+  if (name.startsWith("второст")) return SECPT.clone().setY(0.2);
+  return V(0, 0.2, 0);
+}
+function crossPoint(a, b) {
+  if (!ARROWS[a] || !ARROWS[b]) return null;
+  let best = 1e9, bp = null;
+  for (const p of ARROWS[a].pts) for (const q of ARROWS[b].pts) { const d = p.distanceTo(q); if (d < best) { best = d; bp = p.clone().add(q).multiplyScalar(0.5); } }
+  return best < 2.5 ? bp : null;
+}
+
+// ================================================================== camera shots
+const SHOTS = {
+  "сверху": () => [V(0, 66, 27), V(0, 0, 2)],
+  "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
+  "перекресток": () => [V(17, 19, 30), V(-1, 0, 0)],
+  "знак": (k) => { const c = SIGN.top || V(0, 3, 0), d = lerp(10, 7, ez(k)); const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
+  "табличка": (k) => { const c = SIGN.plateC || V(0, 2, 0), d = lerp(4.8, 3.7, ez(k)); const [ox, oz] = rot(-0.5, d, SIGN.th || 0); return [c.clone().add(V(ox, 0.35, oz)), c.clone().add(V(0, 0.4, 0))]; },
+};
+function shot(name, k) {
+  if (SHOTS[name]) return SHOTS[name](k);
+  const a = ACT[name] || ACT[Object.keys(ACT).find(x => name && x.startsWith(name.slice(0, 4)))];
+  if (!a) return SHOTS["сверху"](k);
+  const p = a.obj.position, ry = a.obj.rotation.y, s = lerp(1.08, 0.95, ez(k)), L = a.obj.userData.half / 2.3;
+  if (a.id === "мы" && name === "мы-водитель") {
+    const o = V(-0.4, 1.45, 0.1).applyAxisAngle(V(0, 1, 0), ry), f = V(0, -0.2, -25).applyAxisAngle(V(0, 1, 0), ry);
+    return [p.clone().add(o), p.clone().add(o).add(f)];
+  }
+  const o = V(5.5 * L * s, 4.2 * Math.sqrt(L) * s, -8.5 * L * s).applyAxisAngle(V(0, 1, 0), ry);
+  return [p.clone().add(o), p.clone().add(V(0, 1.2, 0))];
+}
+const BEATS = TL.beats; let lastCam = "сверху";
+BEATS.forEach(b => { b.cam = b.cam || lastCam; lastCam = b.cam; });
+function shotAt(t) {        // shot active at time t (no transition)
+  if (t < TL.cardOut + 0.5 || !BEATS.length) return shot("сверху", 0);
+  let i = BEATS.length - 1; for (let j = 0; j < BEATS.length; j++) if (BEATS[j].t0 <= t) i = j;
+  const b = BEATS[i]; return shot(b.cam, (t - b.t0) / Math.max(1, b.t1 - b.t0));
+}
+function camAt(t) {
+  let p, q;
+  const flyEnd = TL.cardIn + 0.6;
+  if (t < flyEnd) {
+    const k = ez(t / flyEnd), [p1, q1] = shot("сверху", 0), ang = (1 - k) * 1.1;
+    const from = V(30, 95, 70), pp = from.clone().lerp(p1, k);
+    p = V(pp.x * Math.cos(ang) + pp.z * Math.sin(ang), pp.y, -pp.x * Math.sin(ang) + pp.z * Math.cos(ang)); q = q1;
+  } else {
+    let b = null; for (const x of BEATS) if (x.t0 <= t) b = x;
+    const [p1, q1] = shotAt(t), kk = b ? ez((t - b.t0) / 1.1) : 1;
+    if (kk >= 1) { p = p1; q = q1; }
+    else { const [p0, q0] = shotAt(b.t0 - 0.001); p = p0.clone().lerp(p1, kk); q = q0.clone().lerp(q1, kk); }
+  }
+  camera.position.copy(p); camera.lookAt(q);
+  // during the question the card covers the top: push the 3D picture down
+  const sh = t < TL.cardOut ? 1 : 1 - ez((t - TL.cardOut) / 0.9);
+  camera.setViewOffset(W, H, 0, -330 * sh, W, H);
+}
+
+// ================================================================== overlay helpers
+const ov = document.getElementById("ov").getContext("2d");
+function proj(v) { const p = v.clone().project(camera); return [(p.x + 1) / 2 * W, (1 - p.y) / 2 * H, p.z < 1]; }
+function rrect(x, y, w, h, r) { ov.beginPath(); ov.moveTo(x + r, y); ov.arcTo(x + w, y, x + w, y + h, r); ov.arcTo(x + w, y + h, x, y + h, r); ov.arcTo(x, y + h, x, y, r); ov.arcTo(x, y, x + w, y, r); ov.closePath(); }
+function popK(t, t0, d = 0.25) { const k = clamp((t - t0) / d); return k <= 0 ? 0 : 1 + 0.22 * Math.sin(k * Math.PI) * (1 - k * 0.3); }
+// "*green*" and "_red_" markup -> words with colors
+function words(text) {
+  const out = []; let col = "#fff";
+  for (const tok of text.toUpperCase().split(/(\*|_)/)) {
+    if (tok === "*") { col = col === LIME ? "#fff" : LIME; continue; }
+    if (tok === "_") { col = col === RED ? "#fff" : RED; continue; }
+    for (const w of tok.replace(/ - /g, " \u2014 ").split(/\s+/)) if (w) {
+      if (/^[,.!?:;]+$/.test(w) && out.length) out[out.length - 1][0] += w; else out.push([w, col]); }
+  }
+  return out;
+}
+function layout(ws, font, maxW) {
+  ov.font = font; const sp = ov.measureText(" ").width, lines = [[]]; let lw = 0;
+  for (const w of ws) { const ww = ov.measureText(w[0]).width; if (lw + ww > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push([w[0], w[1], ww]); lw += ww + sp; }
+  return {lines, sp, width: Math.max(...lines.map(l => l.reduce((a, w) => a + w[2], 0) + sp * (l.length - 1)))};
+}
+function drawLines(L, cx, cy, lh) {
+  L.lines.forEach((ln, i) => { const lw = ln.reduce((a, w) => a + w[2], 0) + L.sp * (ln.length - 1); let x = cx - lw / 2; const y = cy + (i - (L.lines.length - 1) / 2) * lh;
+    for (const [w, c, ww] of ln) { ov.fillStyle = c; ov.fillText(w, x, y); x += ww + L.sp; } });
+}
+function capBox(text, cx, cy, s, alpha = 1, size = 34) {
+  if (s <= 0 || alpha <= 0) return;
+  const font = `900 ${size}px ${FONT}`, L = layout(words(text), font, 600), lh = size * 1.18;
+  const w = L.width + 48, h = L.lines.length * lh + 26;
+  ov.save(); ov.globalAlpha = alpha; ov.translate(cx, cy); ov.scale(s, s);
+  rrect(-w / 2, -h / 2, w, h, 16); ov.fillStyle = "rgba(14,16,20,.9)"; ov.fill(); ov.lineWidth = 2; ov.strokeStyle = "rgba(185,246,74,.45)"; ov.stroke();
+  ov.font = font; ov.textAlign = "left"; ov.textBaseline = "middle"; drawLines(L, 0, 2, lh); ov.restore();
+}
+function sticker(text, cx, cy, bg, fg, s, rotA) {
+  if (s <= 0) return;
+  const font = `900 46px ${FONT}`, L = layout(words(text).map(w => [w[0], fg]), font, 560), lh = 52;
+  const w = L.width + 40, h = L.lines.length * lh + 18;
+  ov.save(); ov.translate(cx, cy); ov.rotate(rotA); ov.scale(s, s);
+  ov.shadowColor = "rgba(0,0,0,.35)"; ov.shadowBlur = 18; rrect(-w / 2, -h / 2, w, h, 12); ov.fillStyle = bg; ov.fill(); ov.shadowBlur = 0;
+  ov.font = font; ov.textAlign = "left"; ov.textBaseline = "middle"; drawLines(L, 0, 3, lh); ov.restore();
+}
+function tag(x, y, sub, title, s) {
+  if (s <= 0) return;
+  const font = `900 26px ${FONT}`, L = layout(words(title), font, 300);
+  ov.font = `800 14px ${FONT}`; const sw = sub ? ov.measureText(sub.toUpperCase()).width : 0;
+  const w = Math.max(L.width, sw) + 30, h = L.lines.length * 30 + (sub ? 36 : 20), bx = clamp(x, w / 2 + 12, W - w / 2 - 12), by = Math.max(y - 58 - h / 2, 300 + h / 2);
+  ov.save(); ov.globalAlpha = Math.min(1, s);
+  ov.strokeStyle = LIME; ov.lineWidth = 3; ov.beginPath(); ov.moveTo(bx, by + h / 2); ov.lineTo(x, y); ov.stroke();
+  ov.beginPath(); ov.arc(x, y, 6, 0, 7); ov.fillStyle = LIME; ov.fill(); ov.lineWidth = 2; ov.strokeStyle = "#111"; ov.stroke();
+  ov.translate(bx, by); ov.scale(s, s);
+  rrect(-w / 2, -h / 2, w, h, 12); ov.fillStyle = "rgba(14,16,20,.92)"; ov.fill(); ov.lineWidth = 2; ov.strokeStyle = "rgba(255,255,255,.18)"; ov.stroke();
+  ov.textAlign = "left"; ov.textBaseline = "middle";
+  if (sub) { ov.font = `800 14px ${FONT}`; ov.fillStyle = "#b9bec6"; ov.textAlign = "center"; ov.fillText(sub.toUpperCase(), 0, -h / 2 + 18); ov.textAlign = "left"; }
+  ov.font = font; drawLines(L, 0, (sub ? 9 : 1), 30); ov.restore();
+}
+function badge(x, y, kind, s) {
+  if (s <= 0) return;
+  ov.save(); ov.translate(x, y); ov.scale(s, s);
+  ov.beginPath(); ov.arc(0, 0, 30, 0, 7); ov.fillStyle = kind === "ok" ? "#2ECC71" : kind === "x" ? "#E53935" : "#E53935"; ov.fill(); ov.lineWidth = 5; ov.strokeStyle = "#fff"; ov.stroke();
+  ov.strokeStyle = "#fff"; ov.lineWidth = 7; ov.lineCap = "round"; ov.beginPath();
+  if (kind === "ok") { ov.moveTo(-12, 1); ov.lineTo(-3, 10); ov.lineTo(13, -9); ov.stroke(); }
+  else if (kind === "x") { ov.moveTo(-10, -10); ov.lineTo(10, 10); ov.moveTo(10, -10); ov.lineTo(-10, 10); ov.stroke(); }
+  else { ov.fillStyle = "#fff"; ov.font = `900 38px ${FONT}`; ov.textAlign = "center"; ov.textBaseline = "middle"; ov.fillText("!", 0, 2); }
+  ov.restore();
+}
+function topicBadge() {
+  if (!TL.topic) return;
+  ov.font = `900 17px ${FONT}`; const txt = "ПДД · " + TL.topic.toUpperCase(), w = ov.measureText(txt).width + 26;
+  rrect(24, 128, w, 32, 9); ov.fillStyle = "rgba(14,16,20,.85)"; ov.fill(); ov.lineWidth = 1.5; ov.strokeStyle = "rgba(185,246,74,.6)"; ov.stroke();
+  ov.fillStyle = "#fff"; ov.textAlign = "left"; ov.textBaseline = "middle"; ov.fillText("ПДД · ", 37, 145); ov.fillStyle = LIME; ov.fillText(TL.topic.toUpperCase(), 37 + ov.measureText("ПДД · ").width, 145);
+}
+function timer(t) {
+  const [t0, n] = TL.timer; if (t < t0 || t > t0 + n) return;
+  const left = Math.max(1, Math.ceil(t0 + n - t)), k = (t - t0) / n, x = W / 2, y = 1010;
+  ov.beginPath(); ov.arc(x, y, 66, 0, Math.PI * 2); ov.fillStyle = "rgba(10,12,14,.85)"; ov.fill();
+  ov.beginPath(); ov.arc(x, y, 60, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - k)); ov.lineWidth = 10; ov.strokeStyle = LIME; ov.lineCap = "round"; ov.stroke();
+  ov.fillStyle = "#fff"; ov.font = `900 64px ${FONT}`; ov.textAlign = "center"; ov.textBaseline = "middle"; ov.fillText(String(left), x, y + 3);
+}
+
+// ================================================================== ticket card
+const C = TL.card, cimg = new Image(); cimg.src = C.img;
+const CW = 660, CH = CW * C.ar;
+function drawCard(x, y, s, alpha, t, label) {
+  if (alpha <= 0 || s <= 0) return;
+  ov.save(); ov.globalAlpha = alpha; ov.translate(x, y); ov.scale(s, s);
+  ov.shadowColor = "rgba(0,0,0,.45)"; ov.shadowBlur = 40; ov.shadowOffsetY = 16; rrect(0, 0, CW, CH, 26); ov.fillStyle = "#fff"; ov.fill();
+  ov.shadowColor = "transparent"; ov.save(); rrect(0, 0, CW, CH, 26); ov.clip(); ov.drawImage(cimg, 0, 0, CW, CH);
+  C.boxes.forEach(([a, b], i) => {         // options appear one by one
+    const k = clamp((t - (TL.reveal[i] ?? 0)) / 0.25);
+    if (k < 1) { ov.globalAlpha = alpha * (1 - k); ov.fillStyle = "#fff"; ov.fillRect(0, a * CH - 6, CW, (b - a) * CH + 12); ov.globalAlpha = alpha; }
+  });
+  ov.restore();
+  if (C.correct && C.boxes[C.correct - 1] && t >= TL.green) {
+    const [a, b] = C.boxes[C.correct - 1], k = clamp((t - TL.green) / 0.3);
+    ov.globalAlpha = alpha * k; rrect(14, a * CH - 2, CW - 28, (b - a) * CH + 4, 16); ov.fillStyle = "rgba(46,204,113,.22)"; ov.fill(); ov.lineWidth = 6; ov.strokeStyle = "#2ECC71"; ov.stroke();
+    const cy = (a + b) / 2 * CH; ov.translate(CW - 52, cy); ov.scale(popK(t, TL.green), popK(t, TL.green));
+    ov.beginPath(); ov.arc(0, 0, 22, 0, 7); ov.fillStyle = "#2ECC71"; ov.fill(); ov.strokeStyle = "#fff"; ov.lineWidth = 5; ov.lineCap = "round";
+    ov.beginPath(); ov.moveTo(-9, 1); ov.lineTo(-2, 8); ov.lineTo(10, -7); ov.stroke();
+  }
+  ov.restore();
+  if (label) { ov.save(); ov.globalAlpha = alpha; ov.font = `900 15px ${FONT}`; const w = ov.measureText(label).width + 18; rrect(x + 10, y + 10, w, 26, 7); ov.fillStyle = "rgba(14,16,20,.88)"; ov.fill(); ov.fillStyle = "#fff"; ov.textAlign = "left"; ov.textBaseline = "middle"; ov.fillText(label, x + 19, y + 24); ov.restore(); }
+}
+function cardPhase(t) {
+  const X = (W - CW) / 2, Y = 180, A0 = TL.answer[0];
+  if (t >= A0) {
+    const k = ez((t - A0) / 0.6); ov.fillStyle = `rgba(8,10,14,${0.55 * k})`; ov.fillRect(0, 0, W, H);
+    drawCard(X + CW * 0.08 * (1 - k), (H - CH) / 2 + 40 * (1 - k), 0.84 + 0.16 * k, k, t); return;
+  }
+  if (t < TL.cardIn) return;
+  const ti = ez((t - TL.cardIn) / 0.55);
+  if (t < TL.cardOut) { drawCard(X, lerp(-CH - 40, Y, ti), 1, Math.min(1, ti * 2), t); return; }
+  const mEnd = BEATS.length ? BEATS[0].t1 : TL.cardOut + 2, ko = ez((t - TL.cardOut) / 0.8), s = lerp(1, 0.34, ko);
+  const fade = 1 - clamp((t - mEnd) / 0.4);
+  drawCard(lerp(X, 24, ko), lerp(Y, 330, ko), s, fade, TL.answer[0] - 1, ko > 0.9 ? "В БИЛЕТЕ" : "");
+}
+
+// ================================================================== frame
+let firstMain = BEATS.find(b => b.main), firstMainT = firstMain ? firstMain.t0 : 1e9;
+window.renderAt = (t) => {
+  for (const a of Object.values(ACT)) placeActor(a, t);
+  camAt(t);
+  const A0 = TL.answer[0];
+  // arrows: from the first beat that shows them until the answer; fade once the actor is gone
+  for (const [id, ar] of Object.entries(ARROWS)) {
+    const b = BEATS.find(b => b.arrows.includes(id)); if (!b || t < b.t0) { ar.rib.grow(0, 0); ar.head.visible = false; continue; }
+    const k = ez((t - b.t0 - 0.2) / 1.2), go = GO[id];
+    let al = t > A0 ? 1 - clamp((t - A0) / 0.5) : 1; if (go !== undefined) al = Math.min(al, 1 - clamp((t - go - 1.5) / 1.0));
+    ar.rib.grow(k, al); placeHead(ar, k, al);
+  }
+  // main road bands
+  const bk = ez((t - firstMainT - 0.1) / 1.3), bal = t > A0 ? 1 - clamp((t - A0) / 0.5) : 1;
+  BANDS.forEach((b, i) => b.grow(i === 0 ? bk : ez((t - firstMainT - 0.6) / 1.0), bal));
+  // plate laid on the road
+  if (BIGPLATE) {
+    const pb = BEATS.find(b => b.plate);
+    if (pb && t >= pb.t0) {
+      const k = ez((t - pb.t0 - 0.1) / 1.4), endT = firstMainT < 1e9 && firstMainT >= pb.t0 ? firstMainT + 0.9 : pb.t1 + 1.2;
+      BIGPLATE.visible = t < endT + 0.6; BIGPLATE.position.set(0, lerp(36, 0.12, k), lerp(16, 0, k));
+      const s = lerp(0.22, 1, k); BIGPLATE.scale.set(s, s, s); BIGPLATE.material.opacity = Math.min(k * 3, 1) * 0.82 * (1 - clamp((t - endT) / 0.6));
+    } else BIGPLATE.visible = false;
+  }
+  renderer.render(scene, camera);
+  ov.clearRect(0, 0, W, H);
+  // beat overlays
+  let cur = null; for (const b of BEATS) if (b.t0 <= t && t < b.t1) cur = b;
+  if (cur && t < A0) {
+    const out = 1 - clamp((t - cur.t1 + 0.25) / 0.25);
+    for (const tg of cur.tags) { const p = target(tg.target, t); const [x, y, ok] = proj(p); if (ok) tag(x, y, tg.sub, tg.title, popK(t, tg.t) * out); }
+    for (const [id, kind] of cur.checks) { const p = actorTop(id); if (!p) continue; const [x, y] = proj(p.add(V(0, 1.4, 0))); badge(x, y, kind, popK(t, cur.t0 + 0.6) * out); }
+    if (cur.cross) { const p = crossPoint(cur.cross[0], cur.cross[1]); if (p) { const [x, y] = proj(p); const s = popK(t, cur.t0 + 1.2) * (1 + 0.08 * Math.sin(t * 8)); badge(x, y, "!", s * out); } }
+  }
+  topicBadge();
+  if (cur && cur.cap && t < A0) capBox(cur.cap, W / 2, 250, popK(t, cur.t0 + 0.05), 1 - clamp((t - cur.t1 + 0.25) / 0.25));
+  // hook stickers
+  if (TL.hookText && t < TL.cardIn + 0.4) {
+    const fade = 1 - clamp((t - TL.cardIn) / 0.4);
+    ov.globalAlpha = fade;
+    sticker(TL.hookText, W / 2, 330, "#E53935", "#fff", popK(t, 0.2), -0.04);
+    sticker("ВОПРОС ПДД", W / 2, 470, LIME, "#111", popK(t, 0.8), 0.03);
+    ov.globalAlpha = 1;
+  }
+  cardPhase(t);
+  timer(t);
+  return true;
+};
+const fontsReady = () => Promise.all([document.fonts.load(`900 50px M`, "АБВabc"), document.fonts.load(`900 50px Montserrat`, "АБВabc"), document.fonts.load(`800 16px Montserrat`, "АБВabc")]).catch(() => 0);
+cimg.decode().catch(() => 0).then(fontsReady).then(() => { window.renderAt(0); window.__ready = true; });
+</script></body></html>
