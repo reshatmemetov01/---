@@ -102,7 +102,7 @@ async def render(TL, work, out_frames, fps, chromium):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     try:
-        args = ["--no-sandbox", "--ignore-gpu-blocklist"]
+        args = ["--no-sandbox", "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"]
         if os.environ.get("PDD3D_SWIFTSHADER"):
             args += ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
         kw = {"args": args}
