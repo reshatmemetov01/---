@@ -134,7 +134,7 @@ html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#111;}
       transition:transform .9s cubic-bezier(.45,.05,.25,1);}
 #card{display:block;width:100%;border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.55);
       clip-path:inset(0% 0% 0% 0% round 26px);transition:clip-path .7s ease;}
-#zoom.photo #card{clip-path:inset(10.8% 2.4% 51.2% 2.4% round 22px);}
+#zoom.photo #card{clip-path:var(--photo);}
 #ov{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;}
 .ell{fill:none;stroke:#FFD400;stroke-width:7;stroke-linecap:round;
      filter:drop-shadow(0 0 6px rgba(0,0,0,.6));}
@@ -223,7 +223,7 @@ window.__tt = {
     a.getBoundingClientRect(); a.style.transition="stroke-dashoffset "+n+"s linear"; a.style.strokeDashoffset=603;
     const iv=setInterval(()=>{k--; if(k<=0){clearInterval(iv); t.classList.remove("on");} else tn.textContent=k;},1000);},
   focus(fx, fy, s){zoom.classList.add("photo"); const ch=CH_(); let tx=__FX__-__CL__-s*fx*CW; const ty=__FY__-__CT__-s*fy*ch;
-    const L=__CL__+tx+s*0.024*CW, R=__CL__+tx+s*0.976*CW;
+    const L=__CL__+tx+s*D.photo[0]*CW, R=__CL__+tx+s*D.photo[2]*CW;
     if (R-L >= 1080) { if (L > 0) tx -= L; else if (R < 1080) tx += 1080-R; }
     zoom.style.transform=`translate(${tx}px,${ty}px) scale(${s})`;},
   reset(){zoom.classList.remove("photo"); zoom.style.transform="none";},
@@ -235,7 +235,7 @@ window.__tt = {
     draw(r,.45); const p=plate(0.5, 1.10, title, sub, true); p.classList.add("keep");}
 };
 img.onload = () => { IW = img.naturalWidth; IH = img.naturalHeight;
-  ov.setAttribute("viewBox", `0 0 ${IW} ${IH}`);
+  ov.setAttribute("viewBox", `0 0 ${IW} ${IH}`); const P=D.photo; zoom.style.setProperty("--photo", `inset(${P[1]*100}% ${(1-P[2])*100}% ${(1-P[3])*100}% ${P[0]*100}% round 22px)`);
   document.getElementById("bg").style.backgroundImage = `url(${D.image})`;
   const go = () => { window.__tt.ready = true; };
   const fontsOk = () => document.fonts.load("900 66px Montserrat").then(()=>document.fonts.load("800 24px Montserrat")).then(go, go);
@@ -255,7 +255,7 @@ def build_page(image_uri, marks):
         starts.append(acc / tot)
         acc += L
     data = {"image": image_uri, "objects": marks.get("objects", []),
-            "underline": ul, "ulTotal": tot, "ulStart": starts}
+            "underline": ul, "ulTotal": tot, "ulStart": starts, "photo": marks.get("photo", [0.024, 0.108, 0.976, 0.488])}
     payload = json.dumps(data, ensure_ascii=True).replace("</", "<\\/")
     page = _PAGE.replace("__DATA__", payload)
     for k, v in {"__CW__": CARD_W, "__CL__": CARD_LEFT, "__CT__": CARD_TOP,
@@ -421,7 +421,7 @@ async def build(a):
 
     # 4) explanation with zoom + marks
     e0 = t
-    events.append((round(e0, 3), "window.__tt.ulOff(); window.__tt.focus(0.5,0.298,1.12)"))
+    events.append((round(e0, 3), "window.__tt.ulOff(); window.__tt.focus(%.3f,%.3f,%.3f)" % (lambda p: ((p[0]+p[2])/2, (p[1]+p[3])/2, min(1.6, 1080/((p[2]-p[0])*CARD_W))))(marks.get("photo", [0.024, 0.108, 0.976, 0.488]))))
     ew = await voice_block(expl)
     e1 = t
     trig = []
