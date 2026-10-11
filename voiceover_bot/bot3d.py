@@ -141,10 +141,17 @@ async def on_photo(m: Message, bot: Bot) -> None:
         return
     p = await save_file(bot, m.photo[-1].file_id, WORK / f"card_{m.from_user.id}.jpg")
     CARDS[m.from_user.id] = p
-    if m.caption and len(m.caption) > 40:
-        await run_job(m, bot, m.caption)
+    cap = m.caption or ""
+    if is_scenario(cap):
+        await run_job(m, bot, cap)
+    elif len(cap) > 120 and avto_scenariy.provider():
+        await auto_job(m, bot, m.from_user.id, cap)
     else:
-        await ask_mode(m, m.caption or "")
+        await ask_mode(m, cap)
+
+
+def is_scenario(t: str) -> bool:
+    return "---" in t and ("Вопрос:" in t or "Мы:" in t)
 
 
 async def ask_mode(m: Message, hint: str) -> None:
@@ -175,15 +182,19 @@ async def cb_auto(cb: CallbackQuery, bot: Bot) -> None:
         await cb.message.answer("Сначала пришли картинку.")
         return
     await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.message.answer("Смотрю картинку и пишу сценарий (до минуты)...")
+    await auto_job(cb.message, bot, uid, HINTS.get(uid, ""))
+
+
+async def auto_job(msg: Message, bot: Bot, uid: int, hint: str) -> None:
+    await msg.answer("Смотрю картинку" + (" и твой текст" if len(hint) > 120 else "") + ", пишу сценарий (до пары минут)...")
     try:
-        text = await asyncio.to_thread(avto_scenariy.make, str(CARDS[uid]), HINTS.get(uid, ""))
+        text = await asyncio.to_thread(avto_scenariy.make, str(CARDS[uid]), hint)
     except Exception as e:
-        await cb.message.answer(f"ИИ не смог: {e}\nПришли сценарий сам (/obrazec).")
+        await msg.answer(f"ИИ не смог: {str(e)[:300]}\nПопробуй через 5-10 минут или пришли сценарий сам (/obrazec).")
         return
-    await cb.message.answer_document(BufferedInputFile(text.encode("utf-8"), filename="scenariy.txt"),
-                                     caption="Вот сценарий. Собираю видео. Если что-то не так - поправь файл и пришли мне.")
-    await run_job(cb.message, bot, text, uid=uid)
+    await msg.answer_document(BufferedInputFile(text.encode("utf-8"), filename="scenariy.txt"),
+                              caption="Вот сценарий. Собираю видео. Если что-то не так - поправь файл и пришли мне.")
+    await run_job(msg, bot, text, uid=uid)
 
 
 @dp.message(F.document)
@@ -212,10 +223,14 @@ async def on_document(m: Message, bot: Bot) -> None:
 async def on_text(m: Message, bot: Bot) -> None:
     if not allowed(m) or m.text.startswith("/"):
         return
-    if "---" not in m.text and "Вопрос:" not in m.text:
+    if is_scenario(m.text):
+        await run_job(m, bot, m.text)
+    elif m.from_user.id in CARDS and avto_scenariy.provider() and len(m.text) > 60:
+        await auto_job(m, bot, m.from_user.id, m.text)       # свой текст простыми словами -> ИИ раскладывает по кадрам
+    elif m.from_user.id not in CARDS:
+        await m.answer("Сначала пришли картинку вопроса, потом текст.")
+    else:
         await m.answer("Это не похоже на сценарий. Образец: /obrazec")
-        return
-    await run_job(m, bot, m.text)
 
 
 async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -> None:
