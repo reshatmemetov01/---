@@ -54,7 +54,7 @@ def parse_scenario(path):
                 yield norm(ln), ""
 
     for k, v in lines(parts[0]):
-        if k in HEAD_KEYS:
+        if k in HEAD_KEYS or re.match(r"вариант\s*\d", k):
             head[k] = v
             continue
         words = re.split(r"[,\s]+", v)
@@ -167,11 +167,18 @@ async def build_timeline(a, head, beats, sc, work):
     q0 = TL["cardIn"] + 0.55
     q1 = q0 + await say(head.get("вопрос", ""), q0)
     TL["question"] = [q0, q1]
-    TL["reveal"] = [round(q1 + 0.15 + i * 0.45, 3) for i in range(len(TL_card_boxes))]
-    t0 = (TL["reveal"][-1] if TL["reveal"] else q1) + 0.45
-    ticks = str(work / "ticks.wav"); make_ticks(3, ticks)
-    clips.append((t0, ticks)); TL["timer"] = [round(t0, 3), 3]
-    t = t0 + 3.1
+    # options are read aloud one by one, each appears on the card when it is read
+    ORD = ["Первый", "Второй", "Третий", "Четвёртый", "Пятый"]
+    opts = [head.get(f"вариант {i + 1}") or head.get(f"вариант{i + 1}") for i in range(len(TL_card_boxes))]
+    TL["reveal"], t = [], q1 + 0.35
+    for i, o in enumerate(opts):
+        TL["reveal"].append(round(t, 3))
+        if o:
+            t += await say(f"{ORD[i] if i < len(ORD) else i + 1}: {o}", t) + 0.3
+        else:
+            t += 0.5
+    TL["timer"] = [-10, 0]
+    t += 0.5
     TL["cardOut"] = round(t, 3)
     t += 0.5
     go_names = []
@@ -287,7 +294,7 @@ async def main_async(a):
     frames = work / "frames"; frames.mkdir(exist_ok=True)
     if a.stills:
         pts = [float(x) for x in a.stills.split(",")] if a.stills != "auto" else \
-            [1.0, TL["question"][0] + 1, TL["timer"][0] + 1] + [b["t0"] + (b["t1"] - b["t0"]) * 0.7 for b in beats] + [TL["green"] + 0.5]
+            [1.0, TL["question"][0] + 1, TL["reveal"][-1] + 1 if TL["reveal"] else 5] + [b["t0"] + (b["t1"] - b["t0"]) * 0.7 for b in beats] + [TL["green"] + 0.5]
         for f in frames.glob("*.jpg"):
             f.unlink()
         await render(TL, work, frames, a.fps, a.chromium_path, only=pts)
