@@ -350,7 +350,7 @@ async def build(a):
         hook = mh.group(1).strip()
         raw = raw[:mh.start()] + raw[mh.end():]
     question, expl, _sp, answer, _g, _m = parse_narration(raw)
-    marks = json.loads(Path(a.marks).read_text(encoding="utf-8")) if a.marks else {}
+    marks = json.loads(Path(a.marks).read_text(encoding="utf-8-sig")) if a.marks else {}
     objects = marks.get("objects", [])
 
     base, vname, vrole = make_synth(a.engine, a.voice, a.role)
