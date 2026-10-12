@@ -141,7 +141,7 @@ async def on_photo(m: Message, bot: Bot) -> None:
         return
     p = await save_file(bot, m.photo[-1].file_id, WORK / f"card_{m.from_user.id}.jpg")
     CARDS[m.from_user.id] = p
-    cap = m.caption or ""
+    cap = plain_text(m) if m.caption else ""
     if is_scenario(cap):
         await run_job(m, bot, cap)
     elif len(cap) > 120 and avto_scenariy.provider():
@@ -151,7 +151,23 @@ async def on_photo(m: Message, bot: Bot) -> None:
 
 
 def is_scenario(t: str) -> bool:
-    return "---" in t and ("Вопрос:" in t or "Мы:" in t)
+    return bool(re.search(r"(?m)^\s*Голос\s*:", t)) and bool(re.search(r"(?m)^\s*(Вопрос|Мы)\s*:", t))
+
+
+def plain_text(m: Message) -> str:
+    """Text as the user typed it: Telegram eats *stars* and _underscores_ (shows italic/bold) - put them back."""
+    text = m.text or m.caption or ""
+    ents = m.entities or m.caption_entities or []
+    marks = {"italic": "*", "bold": "*", "underline": "_", "strikethrough": "_"}
+    u16 = text.encode("utf-16-le")
+    ins = []
+    for e in ents:
+        mk = marks.get(e.type if isinstance(e.type, str) else e.type.value)
+        if mk:
+            ins.append((e.offset, mk)); ins.append((e.offset + e.length, mk))
+    for off, mk in sorted(ins, key=lambda x: -x[0]):
+        u16 = u16[:off * 2] + mk.encode("utf-16-le") + u16[off * 2:]
+    return u16.decode("utf-16-le")
 
 
 async def ask_mode(m: Message, hint: str) -> None:
@@ -223,8 +239,9 @@ async def on_document(m: Message, bot: Bot) -> None:
 async def on_text(m: Message, bot: Bot) -> None:
     if not allowed(m) or m.text.startswith("/"):
         return
-    if is_scenario(m.text):
-        await run_job(m, bot, m.text)
+    text = plain_text(m)
+    if is_scenario(text):
+        await run_job(m, bot, text)
     elif m.from_user.id in CARDS and avto_scenariy.provider() and len(m.text) > 60:
         await auto_job(m, bot, m.from_user.id, m.text)       # свой текст простыми словами -> ИИ раскладывает по кадрам
     elif m.from_user.id not in CARDS:

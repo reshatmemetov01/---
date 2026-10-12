@@ -44,7 +44,8 @@ def parse_dir(word):
 
 def parse_scenario(path):
     raw = read_text_any(path)
-    parts = re.split(r"(?m)^\s*-{3,}\s*$", raw)
+    # Telegram/ChatGPT turn "---" into long dashes or a line: accept any run of dashes/underscores as a separator
+    parts = re.split(r"(?m)^\s*[-\u2010-\u2015\u2212_=*]{2,}\s*$", raw)
     head, beats = {}, []
     actors = []
 
