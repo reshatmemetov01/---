@@ -130,6 +130,12 @@ function signTex(kind) {
     g.translate(128, 128); g.rotate(Math.PI / 4);
     g.fillStyle = "#222"; g.fillRect(-92, -92, 184, 184); g.fillStyle = "#fff"; g.fillRect(-86, -86, 172, 172);
     g.fillStyle = "#F7C800"; g.fillRect(-52, -52, 104, 104);
+  } else if (kind.startsWith("oneway")) {
+    const c2 = document.createElement("canvas"); c2.width = 512; c2.height = 160; const g2 = c2.getContext("2d");
+    g2.fillStyle = "#fff"; g2.fillRect(0, 0, 512, 160); g2.fillStyle = "#1f5fbf"; g2.fillRect(8, 8, 496, 144);
+    g2.save(); if (kind === "oneway_left") { g2.translate(512, 0); g2.scale(-1, 1); }
+    g2.fillStyle = "#fff"; g2.fillRect(60, 64, 300, 32); g2.beginPath(); g2.moveTo(340, 30); g2.lineTo(450, 80); g2.lineTo(340, 130); g2.closePath(); g2.fill(); g2.restore();
+    const t2 = new THREE.CanvasTexture(c2); t2.colorSpace = THREE.SRGBColorSpace; return t2;
   } else if (kind === "stop") {
     g.beginPath(); for (let i = 0; i < 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; g.lineTo(128 + 118 * Math.cos(a), 128 + 118 * Math.sin(a)); } g.closePath(); g.fillStyle = "#fff"; g.fill();
     g.beginPath(); for (let i = 0; i < 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; g.lineTo(128 + 108 * Math.cos(a), 128 + 108 * Math.sin(a)); } g.closePath(); g.fillStyle = "#D7261E"; g.fill();
@@ -165,7 +171,16 @@ const SIGN = {}, SIGNS = [];
 const MAIN_TURNS = SC.main.length === 2 && (ARM[SC.main[0]][0] !== -ARM[SC.main[1]][0] || ARM[SC.main[0]][1] !== -ARM[SC.main[1]][1]);
 for (const sg of (SC.signs || [])) {
   const {kind, from} = sg, th = TH[from], [x, z] = rot(7.4, ROUND ? 17.2 : LIGHTS_ON ? 13.2 : 11.4, th), g = new THREE.Group();
-  const withPlate = MAIN_TURNS && kind !== "round";
+  const oneway = kind.startsWith("oneway");
+  const withPlate = MAIN_TURNS && kind !== "round" && !oneway;
+  if (oneway) {        // blue board on top of the same pole
+    const pl = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 5.1, 8), mat("#8a8f96")); pl.position.y = 2.55; g.add(pl);
+    const bd = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.53), new THREE.MeshBasicMaterial({map: signTex(kind)})); bd.position.set(0, 4.85, 0.12); g.add(bd);
+    box(1.7, 0.53, 0.03, "#9aa0a6", 0, 4.85, 0.09, g, false);
+    g.position.set(x, 0.25, z); g.rotation.y = th; scene.add(g);
+    const [wx, wz] = rot(0, 0.1, th); SIGNS.push({group: g, th, from, kind, top: V(x + wx, 0.25 + 4.85, z + wz), oneway: true});
+    continue;
+  }
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 4.2, 8), mat("#8a8f96")); pole.position.y = 2.1; pole.castShadow = true; g.add(pole);
   const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({map: signTex(kind), transparent: true})); front.position.set(0, 3.65, 0.12); g.add(front);
   const back = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), mat("#9aa0a6", {side: THREE.BackSide})); back.position.set(0, 3.65, 0.09); g.add(back);
@@ -184,7 +199,8 @@ for (const sg of (SC.signs || [])) {
   }
   SIGNS.push(S);
 }
-Object.assign(SIGN, SIGNS.find(x => x.from === "S") || SIGNS[0] || {});
+Object.assign(SIGN, SIGNS.find(x => x.from === "S" && !x.oneway) || SIGNS.find(x => !x.oneway) || SIGNS[0] || {});
+const ONEWAY = SIGNS.find(x => x.oneway);
 
 // ================================================================== vehicles
 function car(color) {
@@ -455,6 +471,7 @@ function target(name, t) {
   if (name.startsWith("светофор")) { const L = LIGHTS.S || Object.values(LIGHTS)[0]; return L ? L.clone().add(V(0, 0.9, 0)) : V(0, 0, 0); }
   if (name.startsWith("зебр") || name.startsWith("переход")) { const z = [...ZEBRAS][0]; return z ? V(ARM[z][0] * XW, 0.2, ARM[z][1] * XW) : V(0, 0, 0); }
   if (name.startsWith("кольц") || name.startsWith("круг")) return V(0, 0.6, 0);
+  if (name.startsWith("односторон") || name === "знак2" || name.startsWith("синий")) return ONEWAY ? ONEWAY.top.clone().add(V(0, 0.4, 0)) : V(0, 0, 0);
   if (name === "знак") return SIGN.top ? SIGN.top.clone().add(V(0, 0.8, 0)) : V(0, 0, 0);
   if (name === "табличка") return SIGN.plateC || V(0, 0, 0);
   if (name.startsWith("табличка.толст")) return SIGN.thick || V(0, 0, 0);
@@ -475,7 +492,7 @@ const SHOTS = {
   "сверху": () => [V(0, 70, 24), V(0, 0, -2)],
   "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
   "перекресток": () => [V(17, 19, 30), V(-1, 0, 0)],
-  "знак": (k) => { const c = SIGN.top || V(0, 3, 0), d = lerp(10, 7, ez(k)); const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
+  "знак": (k) => { const up = ONEWAY && ONEWAY.from === SIGN.from ? 0.6 : 0, c = (SIGN.top || V(0, 3, 0)).clone().add(V(0, up, 0)), d = lerp(10, 7, ez(k)) + up * 3.5; const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
   "светофор": (k) => { const L = LIGHTS.S || Object.values(LIGHTS)[0] || V(7, 4.6, 10.6), d = lerp(10, 7, ez(k)); return [L.clone().add(V(-2.2, -1.4, d)), L.clone().add(V(0, -0.6, 0))]; },
   "пешеходы": (k) => { const c = pedsCenter(Object.keys(PEDS)[0]) || V(0, 0, 0), s2 = lerp(1.1, 0.95, ez(k)); return [c.clone().add(V(7 * s2, 6 * s2, 10 * s2)), c.clone().add(V(0, 1, 0))]; },
   "табличка": (k) => { const c = SIGN.plateC || V(0, 2, 0), d = lerp(4.8, 3.7, ez(k)); const [ox, oz] = rot(-0.5, d, SIGN.th || 0); return [c.clone().add(V(ox, 0.35, oz)), c.clone().add(V(0, 0.4, 0))]; },

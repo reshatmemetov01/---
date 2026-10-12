@@ -67,7 +67,12 @@ def parse_scenario(path):
         if k == "знак":
             for part in v.split(";"):
                 w = re.split(r"[,\s]+", part)
-                kind = "main" if any(norm(x).startswith("главн") for x in w) else "stop" if any(norm(x).startswith("стоп") for x in w) else "yield"
+                if any(norm(x).startswith("односторон") for x in w):
+                    kind = "oneway_left" if any(norm(x).startswith("налев") for x in w) else "oneway_right"
+                elif any(norm(x).startswith("круг") for x in w):
+                    kind = "round"
+                else:
+                    kind = "main" if any(norm(x).startswith("главн") for x in w) else "stop" if any(norm(x).startswith("стоп") for x in w) else "yield"
                 signs.append({"kind": kind, "from": next((parse_dir(x) for x in w if parse_dir(x)), "S")})
             continue
         if k == "светофор":
