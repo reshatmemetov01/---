@@ -32,11 +32,14 @@ def main():
         return
     out = base.with_name(base.stem + "_ozvuchka.mp4")
     vd, ad = media_duration(a.video), media_duration(str(mp3))
-    vf = ["-vf", f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}"] if ad + 0.3 > vd else []
-    cmd = [FFMPEG, "-y", "-i", a.video, "-i", str(mp3), "-map", "0:v:0", "-map", "1:a:0", *vf,
-           "-c:v", "libx264" if vf else "copy", *(["-preset", "veryfast"] if vf else []),
-           "-c:a", "aac", "-b:a", "192k", "-t", f"{max(vd, ad + 0.5):.2f}", "-movflags", "+faststart", str(out)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    # always re-encode to H.264: screen recordings are often .webm (VP8/VP9), which mp4/TikTok do not take as is
+    pad = f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}," if ad + 0.3 > vd else ""
+    cmd = [FFMPEG, "-y", "-i", a.video, "-i", str(mp3), "-map", "0:v:0", "-map", "1:a:0",
+           "-vf", pad + "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-t", f"{max(vd, ad + 0.5):.2f}", "-movflags", "+faststart", str(out)]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise SystemExit("ffmpeg: " + r.stderr.decode("utf-8", "replace")[-800:])
     print(f"Готово: {out}  (голос {ad:.1f} с, видео {vd:.1f} с)")
 
 

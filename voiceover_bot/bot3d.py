@@ -397,12 +397,10 @@ async def do_dub(m: Message, text: str) -> None:
         voice.write_bytes(synth_yandex_v3(text, st["voice"], os.environ.get("YANDEX_API_KEY", ""), role_for(st["voice"])))
         os.environ["YANDEX_SPEED"] = settings()["speed"]
         vd, ad = media_duration(str(video)), media_duration(str(voice))
-        vf = ["-vf", f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}"] if ad + 0.3 > vd else []
-        cmd = [FFMPEG, "-y", "-i", str(video), "-i", str(voice), "-map", "0:v:0", "-map", "1:a:0", *vf,
-               "-c:v", "libx264" if vf else "copy", "-preset", "veryfast", "-c:a", "aac", "-b:a", "192k",
-               "-t", f"{max(vd, ad + 0.5):.2f}", "-movflags", "+faststart", str(out)]
-        if not vf:
-            cmd.remove("-preset"); cmd.remove("veryfast")
+        pad = f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}," if ad + 0.3 > vd else ""
+        cmd = [FFMPEG, "-y", "-i", str(video), "-i", str(voice), "-map", "0:v:0", "-map", "1:a:0",
+               "-vf", pad + "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-t", f"{max(vd, ad + 0.5):.2f}", "-movflags", "+faststart", str(out)]
         subprocess.run(cmd, check=True, capture_output=True, timeout=900)
         return vd, ad
 
