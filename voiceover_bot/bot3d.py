@@ -61,6 +61,17 @@ def settings() -> dict:
     return cur
 
 
+def engine_args() -> list:
+    st = settings()
+    if st["voice"] == "my" and st.get("eleven_voice_id"):
+        return ["--engine", "eleven", "--voice", st["eleven_voice_id"]]
+    v = st["voice"] if st["voice"] not in ("my", "custom") else "anton"
+    return ["--engine", ENGINE, "--voice", v, "--role", role_for(v)]
+
+
+AWAIT_CLONE: set[int] = set()
+
+
 def save_settings(**kw) -> dict:
     cur = settings(); cur.update(kw)
     SETTINGS.write_text(json.dumps(cur, ensure_ascii=False), encoding="utf-8")
@@ -109,6 +120,7 @@ def voice_kb() -> InlineKeyboardMarkup:
     st = settings()
     rows = [[InlineKeyboardButton(text=("✅ " if st["voice"] == v else "") + v, callback_data=f"setv:{v}:{st['speed']}") for v in VOICES[i:i + 3]]
             for i in range(0, len(VOICES), 3)]
+    rows.append([InlineKeyboardButton(text=("✅ " if st["voice"] == "my" else "") + "🧑 Мой голос (клон)", callback_data="m:myvoice")])
     rows.append([InlineKeyboardButton(text=("✅ " if st["voice"] == "custom" else "") + "🎤 Свой голос (озвучу на сайте сам)",
                                       callback_data=f"setv:custom:{st['speed']}")])
     rows.append([InlineKeyboardButton(text=("✅ " if st["speed"] == sp else "") + sp, callback_data=f"setv:{st['voice']}:{sp}")
@@ -170,6 +182,12 @@ async def cb_menu(cb: CallbackQuery) -> None:
     elif act == "obrazec":
         f = HERE / "scenariy15.txt"
         await cb.message.answer_document(FSInputFile(f), caption="Образец сценария")
+    elif act == "myvoice":
+        if settings().get("eleven_voice_id"):
+            save_settings(voice="my")
+            await cb.message.answer("✅ Теперь все видео озвучиваются твоим голосом.\nНовый образец: /moy_golos")
+        else:
+            await cmd_myvoice(cb.message, uid=cb.from_user.id)
     elif act == "samples":
         await cb.message.answer("Напиши /golosa 1.4 - пришлю образцы всех голосов на этой скорости.")
 
@@ -249,6 +267,35 @@ async def cmd_promo(m: Message) -> None:
         await m.answer("Пришли скрин шапки профиля (где ссылка на канал). Он будет в середине каждого ролика.\n\n"
                        f"Сейчас Антон говорит:\n«{settings()['promo_text']}»\n\n"
                        "Поменять текст: /reklama текст Твой текст\nВыключить: /reklama выкл")
+
+
+@dp.message(Command("moy_golos"))
+async def cmd_myvoice(m: Message, uid: int | None = None) -> None:
+    uid = uid or m.from_user.id
+    if OWNER and str(uid) != OWNER:
+        return
+    if not os.environ.get("ELEVENLABS_API_KEY"):
+        await m.answer("Чтобы бот говорил твоим голосом, нужен ключ ElevenLabs.\n"
+                       "Впиши на сервере в /opt/pdd3d/bot3d.env строку ELEVENLABS_API_KEY=твой_ключ и перезапусти бота.")
+        return
+    AWAIT_CLONE.add(uid)
+    await m.answer("🧑 Пришли образец своего голоса: аудио 30 секунд - 2 минуты, чистая речь без музыки и шума.")
+
+
+async def do_clone(m: Message, bot: Bot, file_id: str, ext: str) -> None:
+    AWAIT_CLONE.discard(m.from_user.id)
+    p = await save_file(bot, file_id, WORK / f"voice_sample{ext}")
+    msg = await m.answer("Делаю клон голоса (до минуты)...")
+    try:
+        import eleven
+        vid = await asyncio.to_thread(eleven.clone, "PDD voice", str(p))
+        test = await asyncio.to_thread(eleven.synth, "Привет! Теперь все разборы билетов я озвучиваю этим голосом.", vid, 1.0)
+    except Exception as e:
+        await msg.edit_text(f"Не получилось: {str(e)[:400]}")
+        return
+    save_settings(voice="my", eleven_voice_id=vid)
+    await m.answer_audio(BufferedInputFile(test, filename="moy_golos.mp3"),
+                         caption="✅ Готово! Так звучит твой клон. Все новые видео будут этим голосом.\nВернуть Антона: 🎙 Голос и скорость")
 
 
 @dp.message(Command("obrazec"))
@@ -396,7 +443,12 @@ async def do_dub(m: Message, text: str) -> None:
 
     def run():
         os.environ["YANDEX_SPEED"] = sp
-        voice.write_bytes(synth_yandex_v3(text, st["voice"], os.environ.get("YANDEX_API_KEY", ""), role_for(st["voice"])))
+        if st["voice"] == "my" and st.get("eleven_voice_id"):
+            import eleven
+            voice.write_bytes(eleven.synth(text, st["eleven_voice_id"], sp))
+        else:
+            v = st["voice"] if st["voice"] not in ("my", "custom") else "anton"
+            voice.write_bytes(synth_yandex_v3(text, v, os.environ.get("YANDEX_API_KEY", ""), role_for(v)))
         os.environ["YANDEX_SPEED"] = settings()["speed"]
         vd, ad = media_duration(str(video)), media_duration(str(voice))
         pad = f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}," if ad + 0.3 > vd else ""
@@ -435,10 +487,13 @@ async def got_voice_audio(m: Message, bot: Bot, file_id: str, ext: str) -> None:
 async def on_audio(m: Message, bot: Bot) -> None:
     if not allowed(m):
         return
-    if m.from_user.id not in PENDING_VOICE:
-        await m.answer("Аудио я жду только после сценария, когда выбран «🎤 Свой голос».")
-        return
     fid = m.audio.file_id if m.audio else m.voice.file_id
+    if m.from_user.id in AWAIT_CLONE:
+        await do_clone(m, bot, fid, ".mp3" if m.audio else ".ogg")
+        return
+    if m.from_user.id not in PENDING_VOICE:
+        await m.answer("Чтобы бот говорил этим голосом - нажми /moy_golos и пришли аудио ещё раз.")
+        return
     await got_voice_audio(m, bot, fid, ".mp3" if m.audio else ".ogg")
 
 
@@ -447,6 +502,9 @@ async def on_document(m: Message, bot: Bot) -> None:
     if not allowed(m):
         return
     name = (m.document.file_name or "").lower()
+    if m.from_user.id in AWAIT_CLONE and name.endswith((".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
+        await do_clone(m, bot, m.document.file_id, Path(name).suffix)
+        return
     if m.from_user.id in PENDING_VOICE and name.endswith((".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
         await got_voice_audio(m, bot, m.document.file_id, Path(name).suffix)
         return
@@ -517,7 +575,7 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None, v
             OUT_DIR.mkdir(parents=True, exist_ok=True)
             out = OUT_DIR / f"3d_{stamp}.mp4"
             cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
-                   "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
+                   "--out", str(out), *engine_args()]
             pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
             if settings().get("promo") and pimg.exists():
                 cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
