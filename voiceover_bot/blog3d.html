@@ -227,20 +227,26 @@ function car(color) {
   box(0.9, 0.1, 0.06, "#2a2d31", 0, 0.5, -2.31, g, false);
   g.userData = {half: 2.3, h: 1.6, bz: 2.24, bx: 0.8, by: 0.9}; return g;
 }
-function truck(color) {
-  const g = new THREE.Group(), cab = mat(color || "#2f6fd8"), dark = mat("#2a2e33");
-  box(2.4, 0.5, 8.0, dark, 0, 0.75, 0, g);                                  // chassis
-  box(2.5, 1.9, 2.1, cab, 0, 1.95, -2.85, g); box(2.5, 0.5, 0.6, cab, 0, 1.2, -4.0, g);
-  box(2.3, 0.8, 0.06, "#26323d", 0, 2.35, -3.92, g, false);                  // windshield
-  box(2.0, 0.42, 0.06, "#9aa3ad", 0, 1.15, -4.31, g, false);                 // grille
-  box(2.56, 1.6, 5.2, mat("#4d6f9c"), 0, 2.0, 1.3, g); box(2.62, 0.12, 5.26, mat("#3b5a83"), 0, 2.8, 1.3, g);
-  const tire = mat("#1b1c1f");
-  for (const sx of [-1, 1]) for (const sz of [-2.9, 1.0, 2.6]) {
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.42, 16), tire); w.rotation.z = Math.PI / 2; w.position.set(sx * 1.08, 0.55, sz); w.castShadow = true; g.add(w);
+function truck(color) {      // ZIL-130 style: long hood, cab, open flat bed with boards
+  const g = new THREE.Group(), paint = new THREE.MeshStandardMaterial({color: color || "#2f63c8", metalness: 0.2, roughness: 0.55});
+  const dark = mat("#2a2e33"), board = mat(new THREE.Color(color || "#2f63c8").lerp(new THREE.Color("#9aa3ad"), 0.45));
+  box(2.0, 0.45, 8.2, dark, 0, 0.8, 0.2, g);                                   // frame
+  box(2.0, 0.85, 1.7, paint, 0, 1.45, -3.35, g); box(2.3, 0.5, 1.8, paint, 0, 1.15, -3.3, g);   // hood + fenders
+  box(1.7, 0.6, 0.08, "#9aa3ad", 0, 1.35, -4.22, g, false);                    // grille
+  box(2.4, 1.55, 1.6, paint, 0, 2.05, -1.75, g);                               // cab
+  box(2.2, 0.75, 0.06, "#26323d", 0, 2.4, -2.56, g, false);                    // windshield
+  for (const sx of [-1, 1]) box(0.06, 0.6, 0.9, "#26323d", sx * 1.21, 2.4, -1.75, g, false);
+  box(2.5, 0.15, 5.0, board, 0, 1.15, 1.75, g);                               // bed floor
+  for (const sx of [-1, 1]) box(0.08, 0.7, 5.0, board, sx * 1.21, 1.55, 1.75, g);
+  box(2.5, 0.7, 0.08, board, 0, 1.55, 4.22, g); box(2.5, 0.9, 0.08, board, 0, 1.65, -0.72, g);
+  const tire = mat("#1b1c1f"), hub = mat("#c9ced4");
+  for (const [sz, dual] of [[-3.2, false], [1.0, true], [2.5, true]]) for (const sx of [-1, 1]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, dual ? 0.6 : 0.36, 16), tire); w.rotation.z = Math.PI / 2; w.position.set(sx * 1.0, 0.55, sz); w.castShadow = true; g.add(w);
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, dual ? 0.62 : 0.38, 12), hub); h.rotation.z = Math.PI / 2; h.position.set(sx * 1.0, 0.55, sz); g.add(h);
   }
   const head = new THREE.MeshBasicMaterial({color: "#fff8d8"});
-  for (const sx of [-0.85, 0.85]) box(0.4, 0.22, 0.08, head, sx, 1.15, -4.32, g, false);
-  g.userData = {half: 4.3, h: 3.0, bz: 4.33, bx: 1.15, by: 1.4}; return g;
+  for (const sx of [-0.8, 0.8]) { const l = new THREE.Mesh(new THREE.CircleGeometry(0.17, 16), head); l.position.set(sx, 1.35, -4.27); l.rotation.y = Math.PI; g.add(l); }
+  g.userData = {half: 4.3, h: 2.9, bz: 4.25, bx: 1.15, by: 1.2}; return g;
 }
 function bus(color) {
   const g = new THREE.Group();
@@ -279,7 +285,7 @@ const PALETTE = ["#e8e8ea", "#d64541", "#2b2f36", "#f1c40f", "#3aa0d8"];
 // real low-poly models (Kenney Car Kit, CC0); the procedural ones stay as a fallback
 function modelFor(n, i) {
   const pick = [["мы", "sedan"], ["такси", "taxi"], ["полиц", "police"], ["скор", "ambulance"], ["пожар", "firetruck"],
-                ["фургон", "van"], ["газел", "delivery"], ["мусор", "garbage-truck"], ["трактор", "tractor"], ["грузов", "delivery"], ["самосвал", "truck-flat"], ["пикап", "truck"],
+                ["фургон", "van"], ["газел", "delivery"], ["мусор", "garbage-truck"], ["трактор", "tractor"], ["фура", "delivery"], ["самосвал", "truck-flat"], ["пикап", "truck"],
                 ["внедор", "suv"], ["джип", "suv"]].find(([k]) => n.startsWith(k));
   return pick ? pick[1] : ["hatchback-sports", "van", "suv-luxury", "suv", "taxi"][i % 5];
 }
@@ -303,10 +309,14 @@ function glbVehicle(name, length) {
 const ACT = {};
 SC.actors.forEach((a, i) => {
   const n = a.id;
-  const mdl = modelFor(n, i), big = /fire|garbage|delivery/.test(mdl);
-  if (n.startsWith("автобус")) a.obj = bus();
+  const GLB_COLOR = {"#c8312b": "sedan", "#f0c419": "taxi", "#3b9a4c": "hatchback-sports", "#ef7a22": "suv-luxury"};
+  let mdl = modelFor(n, i);
+  if (a.color && !/taxi|police|ambulance|fire|garbage|tractor/.test(mdl)) mdl = GLB_COLOR[a.color] || null;   // colour from the picture wins
+  const big = mdl && /fire|garbage|delivery/.test(mdl);
+  if (n.startsWith("автобус")) a.obj = bus(a.color);
   else if (n.startsWith("трамв")) a.obj = tram();
-  else a.obj = glbVehicle(mdl, big ? 8.2 : 4.6) || (n.startsWith("грузов") ? truck("#2f6fd8") : car(n === "мы" ? "#ff7a1a" : PALETTE[i % PALETTE.length]));
+  else if (n.startsWith("грузов") || n.startsWith("зил") || n.startsWith("камаз")) a.obj = truck(a.color);
+  else a.obj = (mdl && glbVehicle(mdl, big ? 8.2 : 4.6)) || car(a.color || (n === "мы" ? "#ff7a1a" : PALETTE[i % PALETTE.length]));
   scene.add(a.obj);
   const u = a.obj.userData;
   a.stop = (ROUND ? 14 : 10.4) + u.half + 0.6;

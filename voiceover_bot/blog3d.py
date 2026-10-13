@@ -30,6 +30,11 @@ def parse_color(text):
     return next((c for stem, c in COLORS if stem in t), None)
 
 
+CAR_COLORS = [("красн", "#c8312b"), ("син", "#2f63c8"), ("голуб", "#6fa6dc"), ("бел", "#eeeeea"), ("черн", "#22252a"),
+              ("сер", "#8a9099"), ("желт", "#f0c419"), ("зелен", "#3b9a4c"), ("оранж", "#ef7a22"), ("коричн", "#7a4a2a"),
+              ("бордов", "#7a1f2b"), ("фиолет", "#6b4bb0"), ("серебр", "#c3c8cf")]
+
+
 def norm(s):
     return s.strip().lower().replace("ё", "е")
 
@@ -100,7 +105,8 @@ def parse_scenario(path):
         frm = next((parse_dir(w) for w in words if parse_dir(w) and not any(norm(w).startswith(m) for m, _ in MOVES)), None)
         move = next((mv for w in words for stem, mv in MOVES if norm(w).startswith(stem)), "straight")
         if frm:
-            actors.append({"id": k, "from": frm, "move": move})
+            col = next((hexc for w in words for stem, hexc in CAR_COLORS if norm(w).startswith(stem)), None)
+            actors.append({"id": k, "from": frm, "move": move, "color": col})
         else:
             print(f"! не понял строку шапки: {k}: {v}")
     for block in parts[1:]:
