@@ -275,14 +275,17 @@ async def build_timeline(a, head, beats, sc, work):
     TL["beats"] = beats
     # mix voice clips at absolute times
     audio = str(work / "track.m4a")
-    inp, fl = [], []
-    for i, (st, wav) in enumerate(clips):
+    # silent base of exact length first + amix duration=first: the mix always ends (apad could run forever)
+    end = f"{TL['end']:.3f}"
+    inp, fl = ["-f", "lavfi", "-t", end, "-i", "anullsrc=r=48000:cl=stereo"], []
+    for i, (st, wav) in enumerate(clips, start=1):
         inp += ["-i", wav]
         ms = int(st * 1000)
-        fl.append(f"[{i}:a]adelay={ms}|{ms}[a{i}]")
-    fl.append("".join(f"[a{i}]" for i in range(len(clips))) + f"amix=inputs={len(clips)}:normalize=0,apad,atrim=0:{TL['end']:.3f}[out]")
-    subprocess.run([FFMPEG, "-y", *inp, "-filter_complex", ";".join(fl), "-map", "[out]", "-c:a", "aac", "-b:a", "192k", audio],
-                   check=True, capture_output=True)
+        fl.append(f"[{i}:a]aresample=48000,adelay={ms}|{ms}[a{i}]")
+    fl.append("[0:a]" + "".join(f"[a{i}]" for i in range(1, len(clips) + 1)) +
+              f"amix=inputs={len(clips) + 1}:duration=first:normalize=0[out]")
+    subprocess.run([FFMPEG, "-y", *inp, "-filter_complex", ";".join(fl), "-map", "[out]", "-t", end,
+                    "-c:a", "aac", "-b:a", "192k", audio], check=True, capture_output=True, timeout=600)
     return TL, audio
 
 
@@ -349,6 +352,10 @@ async def main_async(a):
     with Image.open(card) as im:
         TL["card"] = {"img": "card.png", "ar": im.height / im.width, "boxes": TL_card_boxes, "correct": correct}
     TL["scene"] = sc
+    TL["fast"] = bool(os.environ.get("BLOG3D_FAST")) or (os.cpu_count() or 4) <= 2
+    if TL["fast"] and a.fps == 30:
+        a.fps = 24                       # weak server: fewer frames, lighter 3D (the overlay text stays sharp)
+        print("Слабый сервер: быстрый режим (24 кадра/с, облегчённое 3D)")
     if a.promo:
         Image.open(a.promo).convert("RGB").save(work / "promo.jpg", quality=92)
         TL["promo"] = "promo.jpg"
@@ -372,7 +379,7 @@ async def main_async(a):
     print("Encoding...")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([FFMPEG, "-y", "-framerate", str(a.fps), "-i", str(frames / "f%05d.jpg"), "-i", audio,
-                    "-vf", "scale=1080:1920:flags=lanczos", "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+                    "-vf", "scale=1080:1920:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast" if TL.get("fast") else "medium", "-crf", "20" if TL.get("fast") else "19",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-t", f"{TL['end']:.2f}",
                     "-movflags", "+faststart", a.out], check=True, capture_output=True)
     if not a.workdir:

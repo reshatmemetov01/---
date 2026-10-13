@@ -20,8 +20,8 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // ================================================================== renderer / light
-const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: true, preserveDrawingBuffer: true});
-renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: !TL.fast, preserveDrawingBuffer: true});
+renderer.setPixelRatio(TL.fast ? 0.6 : 1); renderer.setSize(W, H, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -29,7 +29,7 @@ scene.background = new THREE.Color("#bcd9f0"); scene.fog = new THREE.Fog("#bcd9f
 const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
 scene.add(new THREE.HemisphereLight("#eef6ff", "#8d927e", 1.05));
 const sun = new THREE.DirectionalLight("#ffffff", 1.35);
-sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 2048, TL.fast ? 1024 : 2048);
 Object.assign(sun.shadow.camera, {left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 200});
 scene.add(sun);
 const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({color: c}, o));

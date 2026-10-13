@@ -409,7 +409,12 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
                                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})
         tail, last_edit, t_start, voiced = [], 0.0, time.time(), 0
         while True:
-            line = await proc.stdout.readline()
+            try:                                              # nothing printed for 20 min = hung -> stop it
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=1800)
+            except asyncio.TimeoutError:
+                proc.kill()
+                tail.append("Сборка зависла (30 минут без прогресса) и была остановлена. Попробуй ещё раз.")
+                break
             if not line:
                 break
             s = line.decode("utf-8", "replace").rstrip()
