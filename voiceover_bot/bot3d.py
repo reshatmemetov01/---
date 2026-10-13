@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -78,9 +79,10 @@ def allowed(m: Message) -> bool:
     return not OWNER or str(m.from_user.id) == OWNER
 
 
-BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO = "🏠 Меню", "🎬 Новое видео", "🎙 Голос и скорость", "📣 Реклама"
+BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO, BTN_DUB = "🏠 Меню", "🎬 Новое видео", "🎙 Голос и скорость", "📣 Реклама", "🗣 Озвучить моё видео"
 KB = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_NEW), KeyboardButton(text=BTN_MENU)],
-                                   [KeyboardButton(text=BTN_VOICE), KeyboardButton(text=BTN_PROMO)]], resize_keyboard=True)
+                                   [KeyboardButton(text=BTN_VOICE), KeyboardButton(text=BTN_PROMO)],
+                                   [KeyboardButton(text=BTN_DUB)]], resize_keyboard=True)
 
 
 def menu_text() -> str:
@@ -127,12 +129,15 @@ async def cmd_start(m: Message) -> None:
     await show_menu(m)
 
 
-@dp.message(F.text.in_({BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO}))
+@dp.message(F.text.in_({BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO, BTN_DUB}))
 async def on_button(m: Message) -> None:
     if not allowed(m):
         return
     if m.text == BTN_MENU:
+        DUB.pop(m.from_user.id, None)
         await show_menu(m)
+    elif m.text == BTN_DUB:
+        await cmd_dub(m)
     elif m.text == BTN_NEW:
         CARDS.pop(m.from_user.id, None)
         await m.answer("Ок, начинаем новое видео. Пришли картинку вопроса 📷")
@@ -343,11 +348,82 @@ async def auto_job(msg: Message, bot: Bot, uid: int, hint: str) -> None:
     await run_job(msg, bot, text, uid=uid)
 
 
+# ---------------------------------------------------------------- dubbing: your video + text -> Anton's voice
+DUB: dict[int, dict] = {}            # uid -> {"video": Path | None}
+
+
+@dp.message(Command("ozvuchka"))
+async def cmd_dub(m: Message) -> None:
+    if not allowed(m):
+        return
+    DUB[m.from_user.id] = {"video": None}
+    sp = settings()["speed"]
+    await m.answer(f"🎙 Озвучка твоего видео голосом {settings()['voice']} (скорость {sp}).\n"
+                   "1. Пришли видео.\n2. Потом пришли текст, который надо сказать.\n"
+                   "Другая скорость: напиши в конце текста, например «скорость 1.3».")
+
+
+async def got_dub_video(m: Message, bot: Bot, file_id: str) -> None:
+    p = await save_file(bot, file_id, WORK / f"dub_{m.from_user.id}.mp4")
+    DUB[m.from_user.id] = {"video": p}
+    await m.answer("Видео принял ✅ Теперь пришли текст для озвучки.")
+
+
+@dp.message(F.video)
+async def on_video(m: Message, bot: Bot) -> None:
+    if not allowed(m):
+        return
+    if m.from_user.id not in DUB:
+        await m.answer("Чтобы озвучить видео голосом Антона - нажми /ozvuchka, потом пришли видео.")
+        return
+    await got_dub_video(m, bot, m.video.file_id)
+
+
+async def do_dub(m: Message, text: str) -> None:
+    from auto_quiz import FFMPEG, media_duration, synth_yandex_v3
+    st = settings()
+    sp = st["speed"]
+    ms = re.search(r"скорость\s*([0-9]+[.,][0-9]+)\s*$", text, re.I)
+    if ms:
+        sp = ms.group(1).replace(",", "."); text = text[:ms.start()].strip()
+    video = DUB.pop(m.from_user.id)["video"]
+    WORK.mkdir(parents=True, exist_ok=True)
+    msg = await m.answer("Озвучиваю...")
+    voice = WORK / f"dub_{m.from_user.id}.mp3"
+    out = WORK / f"dub_{m.from_user.id}_out.mp4"
+
+    def run():
+        os.environ["YANDEX_SPEED"] = sp
+        voice.write_bytes(synth_yandex_v3(text, st["voice"], os.environ.get("YANDEX_API_KEY", ""), role_for(st["voice"])))
+        os.environ["YANDEX_SPEED"] = settings()["speed"]
+        vd, ad = media_duration(str(video)), media_duration(str(voice))
+        vf = ["-vf", f"tpad=stop_mode=clone:stop_duration={ad - vd + 0.5:.2f}"] if ad + 0.3 > vd else []
+        cmd = [FFMPEG, "-y", "-i", str(video), "-i", str(voice), "-map", "0:v:0", "-map", "1:a:0", *vf,
+               "-c:v", "libx264" if vf else "copy", "-preset", "veryfast", "-c:a", "aac", "-b:a", "192k",
+               "-t", f"{max(vd, ad + 0.5):.2f}", "-movflags", "+faststart", str(out)]
+        if not vf:
+            cmd.remove("-preset"); cmd.remove("veryfast")
+        subprocess.run(cmd, check=True, capture_output=True, timeout=900)
+        return vd, ad
+
+    try:
+        vd, ad = await asyncio.to_thread(run)
+    except Exception as e:
+        await msg.edit_text(f"Не получилось: {str(e)[:300]}")
+        return
+    note = f"Голос {ad:.1f} с, видео {vd:.1f} с" + (" - видео продлил стоп-кадром." if ad + 0.3 > vd else ".")
+    await m.answer_video(FSInputFile(out), caption=f"Готово ✅ {note}", supports_streaming=True)
+    await m.answer_audio(FSInputFile(voice), caption="Отдельно голос (mp3), если захочешь наложить сам")
+
+
 @dp.message(F.document)
 async def on_document(m: Message, bot: Bot) -> None:
     if not allowed(m):
         return
     name = (m.document.file_name or "").lower()
+    if m.from_user.id in DUB and name.endswith((".mp4", ".mov", ".m4v", ".webm")):
+        await got_dub_video(m, bot, m.document.file_id)
+        return
     if name.endswith((".png", ".jpg", ".jpeg", ".webp")):
         p = await save_file(bot, m.document.file_id, WORK / f"card_{m.from_user.id}{Path(name).suffix}")
         CARDS[m.from_user.id] = p
@@ -370,6 +446,12 @@ async def on_text(m: Message, bot: Bot) -> None:
     if not allowed(m) or m.text.startswith("/"):
         return
     text = plain_text(m)
+    if m.from_user.id in DUB:
+        if DUB[m.from_user.id]["video"] is None:
+            await m.answer("Сначала пришли видео, потом текст.")
+        else:
+            await do_dub(m, text)
+        return
     if is_scenario(text):
         await run_job(m, bot, text)
     elif m.from_user.id in CARDS and avto_scenariy.provider() and len(m.text) > 60:
