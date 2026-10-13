@@ -638,6 +638,24 @@ function drawCard(x, y, s, alpha, t, label) {
   ov.restore();
   if (label) { ov.save(); ov.globalAlpha = alpha; ov.font = `900 15px ${FONT}`; const w = ov.measureText(label).width + 18; rrect(x + 10, y + 10, w, 26, 7); ov.fillStyle = "rgba(14,16,20,.88)"; ov.fill(); ov.fillStyle = "#fff"; ov.textAlign = "left"; ov.textBaseline = "middle"; ov.fillText(label, x + 19, y + 24); ov.restore(); }
 }
+const pimg = new Image(); if (TL.promo) pimg.src = TL.promo;
+function promoPhase(t, b) {          // channel advert: profile screenshot + arrow at the link
+  const k = ez((t - b.t0) / 0.5), out = 1 - clamp((t - b.t1 + 0.35) / 0.35), al = Math.min(k, out);
+  if (al <= 0 || !pimg.naturalWidth) return;
+  ov.fillStyle = `rgba(8,10,14,${0.62 * al})`; ov.fillRect(0, 0, W, H);
+  const w = 640, h = w * pimg.naturalHeight / pimg.naturalWidth, x = (W - w) / 2, y = Math.max(300, (H - h) / 2 - 40);
+  const s = (0.7 + 0.3 * k) * (1 + 0.015 * Math.sin((t - b.t0) * 3));
+  ov.save(); ov.globalAlpha = al; ov.translate(W / 2, y + h / 2); ov.scale(s, s); ov.translate(-W / 2, -(y + h / 2));
+  ov.shadowColor = "rgba(0,0,0,.5)"; ov.shadowBlur = 40; rrect(x, y, w, h, 24); ov.fillStyle = "#fff"; ov.fill(); ov.shadowBlur = 0;
+  ov.save(); rrect(x, y, w, h, 24); ov.clip(); ov.drawImage(pimg, x, y, w, h); ov.restore();
+  ov.lineWidth = 6; ov.strokeStyle = LIME; rrect(x, y, w, h, 24); ov.stroke(); ov.restore();
+  // bouncing arrow pointing at the bio link (lower part of the screenshot)
+  const ay = y + h * 0.82 + 70 + 14 * Math.sin((t - b.t0) * 7), ax = W / 2 + 120;
+  ov.save(); ov.globalAlpha = al * clamp((t - b.t0 - 0.6) / 0.3); ov.translate(ax, ay); ov.rotate(-0.5);
+  ov.fillStyle = LIME; ov.strokeStyle = "#111"; ov.lineWidth = 4; ov.beginPath();
+  ov.moveTo(0, -60); ov.lineTo(36, -10); ov.lineTo(12, -10); ov.lineTo(12, 50); ov.lineTo(-12, 50); ov.lineTo(-12, -10); ov.lineTo(-36, -10); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
+  ov.globalAlpha = al; capBox("ВСЕ *800 ВОПРОСОВ* - ССЫЛКА *В ПРОФИЛЕ*", W / 2, Math.min(H - 150, y + h + 170), popK(t, b.t0 + 0.4)); ov.globalAlpha = 1;
+}
 function cardPhase(t) {
   const X = (W - CW) / 2, Y = 180, A0 = TL.answer[0];
   if (t >= A0) {
@@ -690,6 +708,7 @@ window.renderAt = (t) => {
     if (cur.cross) { const p = crossPoint(cur.cross[0], cur.cross[1]); if (p) { const [x, y] = proj(p); const s = popK(t, cur.t0 + 1.2) * (1 + 0.08 * Math.sin(t * 8)); badge(x, y, "!", s * out); } }
   }
   topicBadge();
+  if (cur && cur.promo) promoPhase(t, cur);
   if (cur && cur.cap && t < A0) capBox(cur.cap, W / 2, 250, popK(t, cur.t0 + 0.05), 1 - clamp((t - cur.t1 + 0.25) / 0.25));
   // hook stickers
   if (TL.hookText && t < TL.cardIn + 0.4) {
@@ -704,5 +723,5 @@ window.renderAt = (t) => {
   return true;
 };
 const fontsReady = () => Promise.all([document.fonts.load(`900 50px M`, "АБВabc"), document.fonts.load(`900 50px Montserrat`, "АБВabc"), document.fonts.load(`800 16px Montserrat`, "АБВabc")]).catch(() => 0);
-cimg.decode().catch(() => 0).then(fontsReady).then(() => { window.renderAt(0); window.__ready = true; });
+cimg.decode().catch(() => 0).then(() => TL.promo ? pimg.decode().catch(() => 0) : 0).then(fontsReady).then(() => { window.renderAt(0); window.__ready = true; });
 </script></body></html>

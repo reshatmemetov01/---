@@ -217,6 +217,10 @@ async def build_timeline(a, head, beats, sc, work):
     TL["cardOut"] = round(t, 3)
     t += 0.5
     go_names = []
+    if getattr(a, "promo", None) and beats:            # advert of the channel in the middle of the video
+        mid = max(1, len(beats) // 2)
+        beats.insert(mid, {"voice": a.promo_text, "promo": True, "tags": [], "arrows": [], "checks": [],
+                           "cam": beats[mid - 1].get("cam")})
     for b in beats:
         b["t0"] = round(t, 3)
         vs = t + 0.15
@@ -225,6 +229,8 @@ async def build_timeline(a, head, beats, sc, work):
         need = 2.0
         if b.get("plate"):
             need = 3.0
+        if b.get("promo"):
+            need = 4.0
         if b.get("go"):
             need = 3.6 + 3.2 * max(0, len(sc["order"]) - 1) + 1.0
             b["goAt"] = {nm: round(b["t0"] + 0.4 + i * 3.2, 3) for i, nm in enumerate(sc["order"])}
@@ -325,6 +331,9 @@ async def main_async(a):
     with Image.open(card) as im:
         TL["card"] = {"img": "card.png", "ar": im.height / im.width, "boxes": TL_card_boxes, "correct": correct}
     TL["scene"] = sc
+    if a.promo:
+        Image.open(a.promo).convert("RGB").save(work / "promo.jpg", quality=92)
+        TL["promo"] = "promo.jpg"
     print(f"Duration: {TL['end']:.1f}s, beats: {len(beats)}, options: {len(TL_card_boxes)}")
     frames = work / "frames"; frames.mkdir(exist_ok=True)
     if a.stills:
@@ -362,6 +371,8 @@ def main():
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--chromium-path", default=None)
     ap.add_argument("--workdir", default=None)
+    ap.add_argument("--promo", default=None, help="скрин профиля - реклама канала в середине ролика")
+    ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
     ap.add_argument("--stills", default=None, help="auto или список секунд через запятую - только кадры, без видео")
     asyncio.run(main_async(ap.parse_args()))
 
