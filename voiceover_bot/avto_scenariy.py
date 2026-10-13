@@ -233,13 +233,23 @@ def make(image_path, hint=""):
     elif rest:
         ask += f" Подсказка автора: {rest}"
     text = ""
-    for attempt in range(2):
+    for attempt in range(3):
         text = ask_ai(image_path, ask).strip().strip("`").strip()
         bad = check(text)
         if not bad:
-            return text
+            import otvety                          # the official answer from the 800-question base wins
+            q = re.search(r"(?m)^\s*Вопрос\s*:\s*(.+)$", text)
+            opts = [mm.group(1).strip() for mm in re.finditer(r"(?m)^\s*Вариант\s*\d+\s*:\s*(.+)$", text)]
+            f = otvety.find(q.group(1), opts) if q else None
+            got = re.search(r"(?m)^\s*Ответ\s*:\s*(\d+)", text)
+            if f and (not got or int(got.group(1)) != f["index"]) and attempt == 0:
+                ask += (f"\nОШИБКА: правильный ответ - вариант {f['index']} («{f['correct']}»). Официальное пояснение: {f['hint']}\n"
+                        "Перепиши сценарий целиком так, чтобы объяснение вело именно к этому ответу.")
+                continue
+            return otvety.check_scenario(text)[0]
         ask += "\nПрошлый вариант был с ошибками: " + "; ".join(bad) + ". Исправь и выведи сценарий целиком заново."
-    return text
+    import otvety
+    return otvety.check_scenario(text)[0]
 
 
 def main():

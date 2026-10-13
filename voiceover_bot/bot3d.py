@@ -303,6 +303,10 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
     if LOCK.locked():
         await m.answer("Сейчас собираю другое видео, твоё встанет следующим.")
     async with LOCK:
+        import otvety
+        scenario, warn = otvety.check_scenario(scenario)
+        if warn:
+            await m.answer(warn)
         stamp = time.strftime("%m%d_%H%M")
         scen = WORK / f"scen_{uid}_{stamp}.txt"
         scen.write_text(scenario, encoding="utf-8")
