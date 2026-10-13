@@ -407,23 +407,32 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
         proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(HERE), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT,
                                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})
-        tail, last_edit = [], 0.0
+        tail, last_edit, t_start, voiced = [], 0.0, time.time(), 0
         while True:
             line = await proc.stdout.readline()
             if not line:
                 break
             s = line.decode("utf-8", "replace").rstrip()
+            print("[blog3d]", s, flush=True)                 # visible in journalctl -u bot3d
             tail = (tail + [s])[-15:]
-            mf = re.search(r"frame (\d+)/(\d+)", s)
+            mins = int((time.time() - t_start) // 60)
+            mf = re.search(r"frame (\d+)/(\d+)\s+(\d+)s", s)
             note = None
             if mf:
-                note = f"Рендер: {int(mf.group(1)) * 100 // int(mf.group(2))}%"
+                done, total, secs = int(mf.group(1)), int(mf.group(2)), int(mf.group(3))
+                eta = f", осталось ~{int(secs / done * (total - done) / 60) + 1} мин" if done else ""
+                note = f"Рендер: {done * 100 // total}%{eta}"
+            elif "озвучиваю" in s.lower() or "кэша" in s.lower():
+                voiced += 1
+                note = f"Озвучиваю... ({voiced} фраз, {mins} мин)"
             elif s.startswith("Duration"):
                 note = "Озвучка готова, рендерю кадры..."
             elif s.startswith("Encoding"):
                 note = "Склеиваю видео..."
             elif s.startswith("!"):
                 await m.answer("Внимание: " + s[1:].strip())
+            elif "⚠" in s or "Error" in s or "ошибк" in s.lower():
+                note = f"⚠️ {s.strip()[:150]}"
             if note and time.time() - last_edit > 8:
                 last_edit = time.time()
                 try:
