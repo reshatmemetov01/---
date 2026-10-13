@@ -44,8 +44,9 @@ logging.basicConfig(level=logging.INFO)
 
 
 PROMO = HERE / "promo.jpg"
-PROMO_TEXT = ("Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, "
-              "где я разобрал все 800 вопросов простым и понятным языком.")
+PROMO_DEFAULT = HERE / "promo_default.jpg"
+PROMO_TEXT = ("Кстати! Найди в Телеграме бота «ПДД Эльдархан бот» - он у меня в профиле. "
+              "Там я разобрал все 800 вопросов простым и понятным языком.")
 AWAIT_PROMO: set[int] = set()
 
 
@@ -315,8 +316,9 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
         status = await m.answer("Начал. Озвучиваю...")
         cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
                "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
-        if settings().get("promo") and PROMO.exists():
-            cmd += ["--promo", str(PROMO), "--promo-text", settings()["promo_text"]]
+        pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
+        if settings().get("promo") and pimg.exists():
+            cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
         proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(HERE), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT,
                                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})

@@ -147,6 +147,24 @@ def parse_scenario(path):
     return head, beats, sc
 
 
+def last_text_line(path):
+    """Bounds of the lowest line of dark text on a screenshot (the link in the bio) -> [x0, x1, y_bottom] in fractions."""
+    from PIL import Image
+    im = Image.open(path).convert("L"); W, H = im.size; px = im.load()
+    rows = [sum(1 for x in range(0, W, 2) if px[x, y] < 110) for y in range(H)]
+    y = H - 1
+    while y > H * 0.3 and rows[y] < 3:
+        y -= 1
+    bot = y
+    while y > 0 and rows[y] >= 1:
+        y -= 1
+    top = y + 1
+    xs = [x for yy in range(top, bot + 1) for x in range(0, W, 2) if px[x, yy] < 110]
+    if not xs or bot - top < 4:
+        return [0.1, 0.7, 0.85]
+    return [round(min(xs) / W, 3), round(max(xs) / W, 3), round(min(H, bot + 6) / H, 3)]
+
+
 def detect_options(path):
     """Рамки вариантов на карточке, снизу вверх: низ рамки -> ближайший верх выше 5% высоты."""
     from PIL import Image
@@ -334,6 +352,8 @@ async def main_async(a):
     if a.promo:
         Image.open(a.promo).convert("RGB").save(work / "promo.jpg", quality=92)
         TL["promo"] = "promo.jpg"
+        TL["promoMark"] = last_text_line(work / "promo.jpg")
+        TL["promoCap"] = a.promo_cap
     print(f"Duration: {TL['end']:.1f}s, beats: {len(beats)}, options: {len(TL_card_boxes)}")
     frames = work / "frames"; frames.mkdir(exist_ok=True)
     if a.stills:
@@ -373,6 +393,7 @@ def main():
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--promo", default=None, help="скрин профиля - реклама канала в середине ролика")
     ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
+    ap.add_argument("--promo-cap", default="ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_")
     ap.add_argument("--stills", default=None, help="auto или список секунд через запятую - только кадры, без видео")
     asyncio.run(main_async(ap.parse_args()))
 

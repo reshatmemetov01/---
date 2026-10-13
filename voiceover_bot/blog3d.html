@@ -649,12 +649,26 @@ function promoPhase(t, b) {          // channel advert: profile screenshot + arr
   ov.shadowColor = "rgba(0,0,0,.5)"; ov.shadowBlur = 40; rrect(x, y, w, h, 24); ov.fillStyle = "#fff"; ov.fill(); ov.shadowBlur = 0;
   ov.save(); rrect(x, y, w, h, 24); ov.clip(); ov.drawImage(pimg, x, y, w, h); ov.restore();
   ov.lineWidth = 6; ov.strokeStyle = LIME; rrect(x, y, w, h, 24); ov.stroke(); ov.restore();
-  // bouncing arrow pointing at the bio link (lower part of the screenshot)
-  const ay = y + h * 0.82 + 70 + 14 * Math.sin((t - b.t0) * 7), ax = W / 2 + 120;
-  ov.save(); ov.globalAlpha = al * clamp((t - b.t0 - 0.6) / 0.3); ov.translate(ax, ay); ov.rotate(-0.5);
-  ov.fillStyle = LIME; ov.strokeStyle = "#111"; ov.lineWidth = 4; ov.beginPath();
-  ov.moveTo(0, -60); ov.lineTo(36, -10); ov.lineTo(12, -10); ov.lineTo(12, 50); ov.lineTo(-12, 50); ov.lineTo(-12, -10); ov.lineTo(-36, -10); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
-  ov.globalAlpha = al; capBox("ВСЕ *800 ВОПРОСОВ* - ССЫЛКА *В ПРОФИЛЕ*", W / 2, Math.min(H - 150, y + h + 170), popK(t, b.t0 + 0.4)); ov.globalAlpha = 1;
+  // red pencil underline under the link line + red arrow pointing at it
+  const [mx0, mx1, my] = TL.promoMark || [0.1, 0.7, 0.85];
+  const ux0 = W / 2 + (x + w * mx0 - W / 2) * s, ux1 = W / 2 + (x + w * mx1 - W / 2) * s, uy = y + h / 2 + (y + h * my - (y + h / 2)) * s + 7;
+  const kd = clamp((t - b.t0 - 0.7) / 0.6);
+  if (kd > 0) {
+    ov.save(); ov.globalAlpha = al; ov.strokeStyle = "#E53935"; ov.lineWidth = 9; ov.lineCap = "round"; ov.lineJoin = "round";
+    ov.beginPath(); const n = 40;
+    for (let i = 0; i <= n * kd; i++) { const xx = lerp(ux0 - 6, ux1 + 10, i / n), yy = uy + 3 * Math.sin(i * 0.9) + (i / n) * 4; i ? ov.lineTo(xx, yy) : ov.moveTo(xx, yy); }
+    ov.stroke();
+    if (kd > 0.5) { ov.lineWidth = 5; ov.globalAlpha = al * (kd - 0.5) * 2; ov.beginPath(); for (let i = 0; i <= n; i++) { const xx = lerp(ux0 + 8, ux1 - 4, i / n), yy = uy + 11 + 2 * Math.sin(i * 1.3 + 1); i ? ov.lineTo(xx, yy) : ov.moveTo(xx, yy); } ov.stroke(); }
+    ov.restore();
+  }
+  const ka = clamp((t - b.t0 - 1.1) / 0.3);
+  if (ka > 0) {
+    const bob = 12 * Math.sin((t - b.t0) * 7), tx = Math.min(W - 70, ux1 + 70 + bob * 0.6), ty = uy + 95 + bob;
+    ov.save(); ov.globalAlpha = al * ka; ov.translate(tx, ty); ov.rotate(Math.atan2(uy + 14 - ty, ux1 - 10 - tx) + Math.PI / 2);
+    ov.fillStyle = "#E53935"; ov.strokeStyle = "#fff"; ov.lineWidth = 4; ov.beginPath();
+    ov.moveTo(0, -70); ov.lineTo(38, -18); ov.lineTo(13, -18); ov.lineTo(13, 40); ov.lineTo(-13, 40); ov.lineTo(-13, -18); ov.lineTo(-38, -18); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
+  }
+  ov.globalAlpha = al; capBox(TL.promoCap || "ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_", W / 2, Math.min(H - 150, y + h + 190), popK(t, b.t0 + 0.4)); ov.globalAlpha = 1;
 }
 function cardPhase(t) {
   const X = (W - CW) / 2, Y = 180, A0 = TL.answer[0];
