@@ -338,6 +338,9 @@ async def main_async(a):
     for f in ["three.module.min.js", "mont_900_cyrillic.woff2", "mont_900_latin.woff2"]:
         if (HERE / f).exists():
             shutil.copy(HERE / f, work / f)
+    for d in ["addons", "models"]:
+        if (HERE / d).exists():
+            shutil.copytree(HERE / d, work / d, dirs_exist_ok=True)
     from PIL import Image
     card = work / "card.png"
     Image.open(a.card).convert("RGB").save(card)

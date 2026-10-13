@@ -8,9 +8,10 @@ canvas{position:absolute;left:0;top:0;width:720px;height:1280px;}
 </style></head><body>
 <canvas id="gl" width="720" height="1280"></canvas>
 <canvas id="ov" width="720" height="1280"></canvas>
-<script type="importmap">{"imports":{"three":"__THREE__"}}</script>
+<script type="importmap">{"imports":{"three":"__THREE__","three/addons/":"./addons/"}}</script>
 <script type="module">
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const TL = __TL__;
 const SC = TL.scene;
 const W = 720, H = 1280, LIME = "#B9F64A", RED = "#FF5A4F", FONT = "M, Montserrat, Arial";
@@ -20,8 +21,8 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // ================================================================== renderer / light
-const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: !TL.fast, preserveDrawingBuffer: true});
-renderer.setPixelRatio(TL.fast ? 0.6 : 1); renderer.setSize(W, H, false);
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: true, preserveDrawingBuffer: true});
+renderer.setPixelRatio(1); renderer.setSize(W, H, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -275,13 +276,37 @@ function pathLocal(move, stop) {
   return new THREE.LineCurve3(V(3, 0, stop), V(3, 0, -14));
 }
 const PALETTE = ["#e8e8ea", "#d64541", "#2b2f36", "#f1c40f", "#3aa0d8"];
+// real low-poly models (Kenney Car Kit, CC0); the procedural ones stay as a fallback
+function modelFor(n, i) {
+  const pick = [["мы", "sedan"], ["такси", "taxi"], ["полиц", "police"], ["скор", "ambulance"], ["пожар", "firetruck"],
+                ["фургон", "van"], ["газел", "delivery"], ["мусор", "garbage-truck"], ["трактор", "tractor"], ["грузов", "delivery"], ["самосвал", "truck-flat"], ["пикап", "truck"],
+                ["внедор", "suv"], ["джип", "suv"]].find(([k]) => n.startsWith(k));
+  return pick ? pick[1] : ["hatchback-sports", "van", "suv-luxury", "suv", "taxi"][i % 5];
+}
+const GLB = {};
+{
+  const want = new Set(SC.actors.filter(a => !a.id.startsWith("автобус") && !a.id.startsWith("трамв")).map((a, i) => modelFor(a.id, i)));
+  const loader = new GLTFLoader();
+  await Promise.all([...want].map(name => new Promise(res => loader.load(`models/${name}.glb`, g => { GLB[name] = g.scene; res(); }, undefined, () => res()))));
+}
+function glbVehicle(name, length) {
+  const src = GLB[name]; if (!src) return null;
+  const g = new THREE.Group(), m = src.clone(true);
+  m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const bb = new THREE.Box3().setFromObject(m), size = bb.getSize(V(0, 0, 0)), k = length / size.z;
+  m.scale.setScalar(k); m.rotation.y = Math.PI;                 // model nose is +z, ours is -z
+  m.position.set(-(bb.min.x + bb.max.x) / 2 * k, -bb.min.y * k, (bb.min.z + bb.max.z) / 2 * k);
+  g.add(m);
+  g.userData = {half: length / 2, h: size.y * k, bz: length / 2 + 0.02, bx: size.x * k / 2 - 0.15, by: size.y * k * 0.42};
+  return g;
+}
 const ACT = {};
 SC.actors.forEach((a, i) => {
   const n = a.id;
-  if (n.startsWith("грузов")) a.obj = truck("#2f6fd8");
-  else if (n.startsWith("автобус")) a.obj = bus();
+  const mdl = modelFor(n, i), big = /fire|garbage|delivery/.test(mdl);
+  if (n.startsWith("автобус")) a.obj = bus();
   else if (n.startsWith("трамв")) a.obj = tram();
-  else a.obj = car(n === "мы" ? "#ff7a1a" : PALETTE[i % PALETTE.length]);
+  else a.obj = glbVehicle(mdl, big ? 8.2 : 4.6) || (n.startsWith("грузов") ? truck("#2f6fd8") : car(n === "мы" ? "#ff7a1a" : PALETTE[i % PALETTE.length]));
   scene.add(a.obj);
   const u = a.obj.userData;
   a.stop = (ROUND ? 14 : 10.4) + u.half + 0.6;
