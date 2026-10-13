@@ -109,6 +109,8 @@ def voice_kb() -> InlineKeyboardMarkup:
     st = settings()
     rows = [[InlineKeyboardButton(text=("✅ " if st["voice"] == v else "") + v, callback_data=f"setv:{v}:{st['speed']}") for v in VOICES[i:i + 3]]
             for i in range(0, len(VOICES), 3)]
+    rows.append([InlineKeyboardButton(text=("✅ " if st["voice"] == "custom" else "") + "🎤 Свой голос (озвучу на сайте сам)",
+                                      callback_data=f"setv:custom:{st['speed']}")])
     rows.append([InlineKeyboardButton(text=("✅ " if st["speed"] == sp else "") + sp, callback_data=f"setv:{st['voice']}:{sp}")
                  for sp in ["1.15", "1.25", "1.35", "1.4", "1.5"]])
     rows.append([InlineKeyboardButton(text="🔊 Послушать все голоса", callback_data="m:samples"),
@@ -414,11 +416,40 @@ async def do_dub(m: Message, text: str) -> None:
     await m.answer_audio(FSInputFile(voice), caption="Отдельно голос (mp3), если захочешь наложить сам")
 
 
+async def got_voice_audio(m: Message, bot: Bot, file_id: str, ext: str) -> None:
+    job = PENDING_VOICE.pop(m.from_user.id)
+    src = await save_file(bot, file_id, WORK / f"myvoice_{m.from_user.id}{ext}")
+    import razrezat
+    vdir = WORK / f"myvoice_{m.from_user.id}"
+    try:
+        lens = await asyncio.to_thread(razrezat.split_by_pauses, src, job["n"], vdir)
+    except Exception as e:
+        PENDING_VOICE[m.from_user.id] = job
+        await m.answer(f"Не смог разрезать на {job['n']} фраз: {e}\nПришли аудио ещё раз.")
+        return
+    await m.answer(f"Разрезал на {len(lens)} фраз ✅ Собираю видео.")
+    await run_job(m, bot, "", voice_dir=vdir, cmd_ready=job["cmd"], out_ready=job["out"])
+
+
+@dp.message(F.audio | F.voice)
+async def on_audio(m: Message, bot: Bot) -> None:
+    if not allowed(m):
+        return
+    if m.from_user.id not in PENDING_VOICE:
+        await m.answer("Аудио я жду только после сценария, когда выбран «🎤 Свой голос».")
+        return
+    fid = m.audio.file_id if m.audio else m.voice.file_id
+    await got_voice_audio(m, bot, fid, ".mp3" if m.audio else ".ogg")
+
+
 @dp.message(F.document)
 async def on_document(m: Message, bot: Bot) -> None:
     if not allowed(m):
         return
     name = (m.document.file_name or "").lower()
+    if m.from_user.id in PENDING_VOICE and name.endswith((".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
+        await got_voice_audio(m, bot, m.document.file_id, Path(name).suffix)
+        return
     if m.from_user.id in DUB and name.endswith((".mp4", ".mov", ".m4v", ".webm")):
         await got_dub_video(m, bot, m.document.file_id)
         return
@@ -460,7 +491,11 @@ async def on_text(m: Message, bot: Bot) -> None:
         await m.answer("Это не похоже на сценарий. Образец: /obrazec")
 
 
-async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -> None:
+PENDING_VOICE: dict[int, dict] = {}       # uid -> job waiting for a voice-over recorded on another site
+
+
+async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None, voice_dir: Path | None = None,
+                  cmd_ready: list | None = None, out_ready: Path | None = None) -> None:
     uid = uid or m.from_user.id
     card = CARDS.get(uid)
     if not card:
@@ -473,17 +508,36 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
         scenario, warn = otvety.check_scenario(scenario)
         if warn:
             await m.answer(warn)
-        stamp = time.strftime("%m%d_%H%M")
-        scen = WORK / f"scen_{uid}_{stamp}.txt"
-        scen.write_text(scenario, encoding="utf-8")
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        out = OUT_DIR / f"3d_{stamp}.mp4"
-        status = await m.answer("Начал. Озвучиваю...")
-        cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
-               "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
-        pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
-        if settings().get("promo") and pimg.exists():
-            cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
+        if cmd_ready:
+            cmd, out = cmd_ready + ["--voice-dir", str(voice_dir)], out_ready
+        else:
+            stamp = time.strftime("%m%d_%H%M")
+            scen = WORK / f"scen_{uid}_{stamp}.txt"
+            scen.write_text(scenario, encoding="utf-8")
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            out = OUT_DIR / f"3d_{stamp}.mp4"
+            cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
+                   "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
+            pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
+            if settings().get("promo") and pimg.exists():
+                cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
+            if settings()["voice"] == "custom":         # voice-over from another site: give the text, wait for the audio
+                r = await asyncio.to_thread(subprocess.run, cmd + ["--dump-lines"], cwd=str(HERE), capture_output=True, text=True,
+                                            env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=600)
+                js = next((l[11:] for l in r.stdout.splitlines() if l.startswith("LINES_JSON ")), None)
+                if not js:
+                    await m.answer("Не смог разобрать сценарий:\n" + (r.stdout + r.stderr)[-1500:])
+                    return
+                lines = json.loads(js)
+                PENDING_VOICE[uid] = {"cmd": cmd, "out": out, "n": len(lines)}
+                text = "\n\n".join(lines)
+                await m.answer_document(BufferedInputFile(text.encode("utf-8"), filename="ozvuchka.txt"),
+                                        caption=(f"🎤 Озвучь этот текст на своём сайте ОДНИМ файлом ({len(lines)} абзацев).\n"
+                                                 "Между абзацами должны быть паузы - не склеивай их. Потом пришли мне аудио (mp3/wav)."))
+                if len(text) < 3800:
+                    await m.answer(text)
+                return
+        status = await m.answer("Начал. Озвучиваю..." if not voice_dir else "Начал. Режу твою озвучку и рендерю...")
         proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(HERE), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT,
                                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})

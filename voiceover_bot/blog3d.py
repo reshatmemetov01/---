@@ -199,9 +199,24 @@ def detect_options(path):
     return boxes[::-1]
 
 
+LINES = []                                      # every phrase in the order it is voiced (for --dump-lines)
+
+
 async def build_timeline(a, head, beats, sc, work):
-    base, vn, vr = make_synth(a.engine, a.voice, a.role)
-    synth = make_cached_synth(base, a.engine, vn, vr, "+0Hz", 30)
+    if getattr(a, "dump_lines", False) or getattr(a, "voice_dir", None):
+        files = sorted(Path(a.voice_dir).glob("*.mp3")) if a.voice_dir else []
+
+        async def synth(text):                 # record the order / take ready-made audio from another TTS site
+            LINES.append(text)
+            if files:
+                if len(LINES) > len(files):
+                    raise SystemExit(f"! В твоём аудио {len(files)} кусков, а фраз больше. Проверь паузы между абзацами.")
+                return files[len(LINES) - 1].read_bytes()
+            return subprocess.run([FFMPEG, "-f", "lavfi", "-t", "0.6", "-i", "sine=frequency=300:sample_rate=24000", "-f", "mp3", "-"],
+                                  capture_output=True).stdout
+    else:
+        base, vn, vr = make_synth(a.engine, a.voice, a.role)
+        synth = make_cached_synth(base, a.engine, vn, vr, "+0Hz", 30)
     clips = []                                  # (start, wav)
     n = [0]
 
@@ -354,6 +369,9 @@ async def main_async(a):
     if not TL_card_boxes:
         print("! варианты на карточке не найдены - зелёной рамки не будет")
     TL, audio = await build_timeline(a, head, beats, sc, work)
+    if a.dump_lines:
+        print("LINES_JSON " + json.dumps(LINES, ensure_ascii=False))
+        return
     try:
         correct = int(re.findall(r"\d+", head.get("ответ", "0"))[0])
     except IndexError:
@@ -410,6 +428,8 @@ def main():
     ap.add_argument("--promo", default=None, help="скрин профиля - реклама канала в середине ролика")
     ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
     ap.add_argument("--promo-cap", default="ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_")
+    ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
+    ap.add_argument("--voice-dir", default=None, help="папка 001.mp3, 002.mp3... - готовая озвучка фраз по порядку")
     ap.add_argument("--stills", default=None, help="auto или список секунд через запятую - только кадры, без видео")
     asyncio.run(main_async(ap.parse_args()))
 
