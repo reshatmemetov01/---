@@ -653,20 +653,16 @@ function promoPhase(t, b) {          // channel advert: profile screenshot + arr
   const [mx0, mx1, my] = TL.promoMark || [0.1, 0.7, 0.85];
   const ux0 = W / 2 + (x + w * mx0 - W / 2) * s, ux1 = W / 2 + (x + w * mx1 - W / 2) * s, uy = y + h / 2 + (y + h * my - (y + h / 2)) * s + 7;
   const kd = clamp((t - b.t0 - 0.7) / 0.6);
-  if (kd > 0) {
-    ov.save(); ov.globalAlpha = al; ov.strokeStyle = "#E53935"; ov.lineWidth = 9; ov.lineCap = "round"; ov.lineJoin = "round";
-    ov.beginPath(); const n = 40;
-    for (let i = 0; i <= n * kd; i++) { const xx = lerp(ux0 - 6, ux1 + 10, i / n), yy = uy + 3 * Math.sin(i * 0.9) + (i / n) * 4; i ? ov.lineTo(xx, yy) : ov.moveTo(xx, yy); }
-    ov.stroke();
-    if (kd > 0.5) { ov.lineWidth = 5; ov.globalAlpha = al * (kd - 0.5) * 2; ov.beginPath(); for (let i = 0; i <= n; i++) { const xx = lerp(ux0 + 8, ux1 - 4, i / n), yy = uy + 11 + 2 * Math.sin(i * 1.3 + 1); i ? ov.lineTo(xx, yy) : ov.moveTo(xx, yy); } ov.stroke(); }
-    ov.restore();
+  if (kd > 0) {           // straight red marker line, drawn left to right
+    ov.save(); ov.globalAlpha = al; ov.strokeStyle = "#E53935"; ov.lineWidth = 8; ov.lineCap = "round";
+    ov.beginPath(); ov.moveTo(ux0 - 6, uy); ov.lineTo(lerp(ux0 - 6, ux1 + 8, kd), uy); ov.stroke(); ov.restore();
   }
   const ka = clamp((t - b.t0 - 1.1) / 0.3);
-  if (ka > 0) {
-    const bob = 12 * Math.sin((t - b.t0) * 7), tx = Math.min(W - 70, ux1 + 70 + bob * 0.6), ty = uy + 95 + bob;
-    ov.save(); ov.globalAlpha = al * ka; ov.translate(tx, ty); ov.rotate(Math.atan2(uy + 14 - ty, ux1 - 10 - tx) + Math.PI / 2);
+  if (ka > 0) {           // arrow from above, at an angle, tip on the end of the link
+    const bob = 10 * Math.sin((t - b.t0) * 7), tipX = ux1 - 4, tipY = uy - 30, ang = -0.6;   // tilted to the right
+    ov.save(); ov.globalAlpha = al * ka; ov.translate(tipX + 0.5 * bob, tipY - bob); ov.rotate(ang);
     ov.fillStyle = "#E53935"; ov.strokeStyle = "#fff"; ov.lineWidth = 4; ov.beginPath();
-    ov.moveTo(0, -70); ov.lineTo(38, -18); ov.lineTo(13, -18); ov.lineTo(13, 40); ov.lineTo(-13, 40); ov.lineTo(-13, -18); ov.lineTo(-38, -18); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
+    ov.moveTo(0, 0); ov.lineTo(-34, -48); ov.lineTo(-12, -48); ov.lineTo(-12, -120); ov.lineTo(12, -120); ov.lineTo(12, -48); ov.lineTo(34, -48); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
   }
   ov.globalAlpha = al; capBox(TL.promoCap || "ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_", W / 2, Math.min(H - 150, y + h + 190), popK(t, b.t0 + 0.4)); ov.globalAlpha = 1;
 }

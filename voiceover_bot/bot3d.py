@@ -24,7 +24,8 @@ from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (BufferedInputFile, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup,
+                           KeyboardButton, Message, ReplyKeyboardMarkup)
 
 import avto_scenariy
 
@@ -77,15 +78,93 @@ def allowed(m: Message) -> bool:
     return not OWNER or str(m.from_user.id) == OWNER
 
 
-@dp.message(Command("start", "help"))
+BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO = "🏠 Меню", "🎬 Новое видео", "🎙 Голос и скорость", "📣 Реклама"
+KB = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_NEW), KeyboardButton(text=BTN_MENU)],
+                                   [KeyboardButton(text=BTN_VOICE), KeyboardButton(text=BTN_PROMO)]], resize_keyboard=True)
+
+
+def menu_text() -> str:
+    st = settings()
+    return ("🏠 <b>Меню</b>\n\n"
+            "<b>Как сделать видео:</b>\n"
+            "1. Пришли картинку вопроса.\n"
+            "2. Пришли сценарий (текстом или .txt) - или нажми «Придумай сам».\n"
+            "3. Жди видео 10-20 минут.\n\n"
+            f"🎙 Голос: <b>{st['voice']}</b>, скорость <b>{st['speed']}</b>\n"
+            f"📣 Реклама канала: <b>{'включена' if st.get('promo') else 'выключена'}</b>")
+
+
+def menu_kb() -> InlineKeyboardMarkup:
+    st = settings()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎙 Голос и скорость", callback_data="m:voice")],
+        [InlineKeyboardButton(text=("📣 Выключить рекламу" if st.get("promo") else "📣 Включить рекламу"), callback_data="m:promo")],
+        [InlineKeyboardButton(text="🖼 Новый скрин профиля", callback_data="m:promoimg")],
+        [InlineKeyboardButton(text="📄 Образец сценария", callback_data="m:obrazec")]])
+
+
+def voice_kb() -> InlineKeyboardMarkup:
+    st = settings()
+    rows = [[InlineKeyboardButton(text=("✅ " if st["voice"] == v else "") + v, callback_data=f"setv:{v}:{st['speed']}") for v in VOICES[i:i + 3]]
+            for i in range(0, len(VOICES), 3)]
+    rows.append([InlineKeyboardButton(text=("✅ " if st["speed"] == sp else "") + sp, callback_data=f"setv:{st['voice']}:{sp}")
+                 for sp in ["1.15", "1.25", "1.35", "1.4", "1.5"]])
+    rows.append([InlineKeyboardButton(text="🔊 Послушать все голоса", callback_data="m:samples"),
+                 InlineKeyboardButton(text="🏠 Меню", callback_data="m:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def show_menu(m: Message) -> None:
+    await m.answer("Кнопки снизу 👇", reply_markup=KB)
+    await m.answer(menu_text(), reply_markup=menu_kb(), parse_mode="HTML")
+
+
+@dp.message(Command("start", "help", "menu"))
 async def cmd_start(m: Message) -> None:
-    await m.answer(
-        "Привет! Делаю 3D-ролики по вопросам ПДД.\n\n"
-        "1. Пришли картинку вопроса.\n"
-        "2. Пришли сценарий - текстом или .txt файлом.\n"
-        "3. Жди видео (10-20 минут).\n\n"
-        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\nГолоса: /golosa\nРеклама канала: /reklama\n"
-        f"Твой id: {m.from_user.id}")
+    if not allowed(m):
+        await m.answer(f"Твой id: {m.from_user.id}")
+        return
+    await show_menu(m)
+
+
+@dp.message(F.text.in_({BTN_MENU, BTN_NEW, BTN_VOICE, BTN_PROMO}))
+async def on_button(m: Message) -> None:
+    if not allowed(m):
+        return
+    if m.text == BTN_MENU:
+        await show_menu(m)
+    elif m.text == BTN_NEW:
+        CARDS.pop(m.from_user.id, None)
+        await m.answer("Ок, начинаем новое видео. Пришли картинку вопроса 📷")
+    elif m.text == BTN_VOICE:
+        await m.answer("Выбери голос и скорость:", reply_markup=voice_kb())
+    elif m.text == BTN_PROMO:
+        st = settings()
+        await m.answer(f"📣 Реклама: {'включена' if st.get('promo') else 'выключена'}\nАнтон говорит:\n«{st['promo_text']}»\n\n"
+                       "Поменять текст: /reklama текст Твой текст", reply_markup=menu_kb())
+
+
+@dp.callback_query(F.data.startswith("m:"))
+async def cb_menu(cb: CallbackQuery) -> None:
+    if OWNER and str(cb.from_user.id) != OWNER:
+        return
+    act = cb.data[2:]
+    await cb.answer()
+    if act == "menu":
+        await cb.message.answer(menu_text(), reply_markup=menu_kb(), parse_mode="HTML")
+    elif act == "voice":
+        await cb.message.answer("Выбери голос и скорость:", reply_markup=voice_kb())
+    elif act == "promo":
+        save_settings(promo=not settings().get("promo"))
+        await cb.message.edit_text(menu_text(), reply_markup=menu_kb(), parse_mode="HTML")
+    elif act == "promoimg":
+        AWAIT_PROMO.add(cb.from_user.id)
+        await cb.message.answer("Пришли новый скрин шапки профиля 📷")
+    elif act == "obrazec":
+        f = HERE / "scenariy15.txt"
+        await cb.message.answer_document(FSInputFile(f), caption="Образец сценария")
+    elif act == "samples":
+        await cb.message.answer("Напиши /golosa 1.4 - пришлю образцы всех голосов на этой скорости.")
 
 
 @dp.message(Command("golosa"))
@@ -132,7 +211,13 @@ async def cb_setv(cb: CallbackQuery) -> None:
     _, v, sp = cb.data.split(":")
     save_settings(voice=v, speed=sp)
     await cb.answer(f"Выбран {v}, {sp}")
-    await cb.message.answer(f"Голос для видео: {v}, скорость {sp}.")
+    if cb.message.text:                       # the voice menu: just tick the new choice
+        try:
+            await cb.message.edit_reply_markup(reply_markup=voice_kb())
+        except Exception:
+            pass
+    else:                                     # a voice sample
+        await cb.message.answer(f"Голос для видео: {v}, скорость {sp}.")
 
 
 @dp.message(Command("reklama"))
