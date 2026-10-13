@@ -214,6 +214,21 @@ async def build_timeline(a, head, beats, sc, work):
                 return files[len(LINES) - 1].read_bytes()
             return subprocess.run([FFMPEG, "-f", "lavfi", "-t", "0.6", "-i", "sine=frequency=300:sample_rate=24000", "-f", "mp3", "-"],
                                   capture_output=True).stdout
+    elif a.engine == "xtts":                   # own cloned voice, locally (XTTS v2): --voice = path to the sample
+        import cloning, tempfile as _tf
+        sp = float(os.environ.get("YANDEX_SPEED", "1.0") or 1.0)
+
+        def _x(t):
+            with _tf.TemporaryDirectory() as td:
+                wav = os.path.join(td, "x.wav")
+                cloning._synth(t, a.voice, "ru", wav)
+                tempo = max(0.5, min(2.0, sp))
+                r = subprocess.run([FFMPEG, "-y", "-i", wav, "-af", f"atempo={tempo:.2f}", "-f", "mp3", "-"], capture_output=True)
+                return r.stdout
+
+        async def base(t):
+            return await asyncio.to_thread(_x, t)
+        synth = make_cached_synth(base, "xtts", Path(a.voice).stem + str(Path(a.voice).stat().st_mtime_ns), "s" + str(sp), "+0Hz", 30)
     elif a.engine == "eleven":                 # own cloned voice (ElevenLabs)
         import eleven
         sp = os.environ.get("YANDEX_SPEED", "1.0")
@@ -426,7 +441,7 @@ def main():
     ap.add_argument("--card", required=True)
     ap.add_argument("--scenario", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--engine", choices=["yandex", "yandex3", "edge", "eleven"], default="yandex3")
+    ap.add_argument("--engine", choices=["yandex", "yandex3", "edge", "eleven", "xtts"], default="yandex3")
     ap.add_argument("--voice", default="anton")
     ap.add_argument("--role", default="good")
     ap.add_argument("--fps", type=int, default=30)

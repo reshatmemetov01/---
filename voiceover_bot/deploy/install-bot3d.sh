@@ -27,6 +27,12 @@ echo "==> Ставлю Python-пакеты (пару минут)..."
 python3 -m venv "$DIR/venv"
 "$DIR/venv/bin/pip" install -q -U pip
 "$DIR/venv/bin/pip" install -q "aiogram>=3.4,<4" edge-tts imageio-ffmpeg Pillow "numpy<2.3" "playwright>=1.40" yandex-speechkit
+if [ "$1" = "--golos" ]; then
+  echo "==> Ставлю клонирование голоса (XTTS, ~3 ГБ, 5-15 минут)..."
+  "$DIR/venv/bin/pip" install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+  "$DIR/venv/bin/pip" install -q "coqui-tts>=0.24"
+  "$DIR/venv/bin/python" -c "import torch, TTS; print('XTTS OK')"
+fi
 echo "==> Ставлю браузер Chromium для рендера..."
 "$DIR/venv/bin/python" -m playwright install --with-deps chromium
 

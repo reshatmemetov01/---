@@ -61,10 +61,23 @@ def settings() -> dict:
     return cur
 
 
+MY_VOICE = HERE / "my_voice.wav"
+
+
+def xtts_ready() -> bool:
+    try:
+        import cloning
+        return cloning.available()
+    except Exception:
+        return False
+
+
 def engine_args() -> list:
     st = settings()
-    if st["voice"] == "my" and st.get("eleven_voice_id"):
+    if st["voice"] == "my" and os.environ.get("ELEVENLABS_API_KEY") and st.get("eleven_voice_id"):
         return ["--engine", "eleven", "--voice", st["eleven_voice_id"]]
+    if st["voice"] == "my" and MY_VOICE.exists() and xtts_ready():
+        return ["--engine", "xtts", "--voice", str(MY_VOICE)]
     v = st["voice"] if st["voice"] not in ("my", "custom") else "anton"
     return ["--engine", ENGINE, "--voice", v, "--role", role_for(v)]
 
@@ -183,7 +196,7 @@ async def cb_menu(cb: CallbackQuery) -> None:
         f = HERE / "scenariy15.txt"
         await cb.message.answer_document(FSInputFile(f), caption="Образец сценария")
     elif act == "myvoice":
-        if settings().get("eleven_voice_id"):
+        if (settings().get("eleven_voice_id") and os.environ.get("ELEVENLABS_API_KEY")) or (MY_VOICE.exists() and xtts_ready()):
             save_settings(voice="my")
             await cb.message.answer("✅ Теперь все видео озвучиваются твоим голосом.\nНовый образец: /moy_golos")
         else:
@@ -274,9 +287,9 @@ async def cmd_myvoice(m: Message, uid: int | None = None) -> None:
     uid = uid or m.from_user.id
     if OWNER and str(uid) != OWNER:
         return
-    if not os.environ.get("ELEVENLABS_API_KEY"):
-        await m.answer("Чтобы бот говорил твоим голосом, нужен ключ ElevenLabs.\n"
-                       "Впиши на сервере в /opt/pdd3d/bot3d.env строку ELEVENLABS_API_KEY=твой_ключ и перезапусти бота.")
+    if not os.environ.get("ELEVENLABS_API_KEY") and not xtts_ready():
+        await m.answer("Для своего голоса на сервере нужен модуль клонирования.\n"
+                       "Выполни на сервере: bash install-bot3d.sh --golos (нужен сервер от 4 ядер и 8 ГБ памяти).")
         return
     AWAIT_CLONE.add(uid)
     await m.answer("🧑 Пришли образец своего голоса: аудио 30 секунд - 2 минуты, чистая речь без музыки и шума.")
@@ -285,16 +298,29 @@ async def cmd_myvoice(m: Message, uid: int | None = None) -> None:
 async def do_clone(m: Message, bot: Bot, file_id: str, ext: str) -> None:
     AWAIT_CLONE.discard(m.from_user.id)
     p = await save_file(bot, file_id, WORK / f"voice_sample{ext}")
-    msg = await m.answer("Делаю клон голоса (до минуты)...")
+    from auto_quiz import FFMPEG
+    phrase = "Привет! Теперь все разборы билетов я озвучиваю этим голосом."
     try:
-        import eleven
-        vid = await asyncio.to_thread(eleven.clone, "PDD voice", str(p))
-        test = await asyncio.to_thread(eleven.synth, "Привет! Теперь все разборы билетов я озвучиваю этим голосом.", vid, 1.0)
+        if os.environ.get("ELEVENLABS_API_KEY"):
+            msg = await m.answer("Делаю клон голоса (до минуты)...")
+            import eleven
+            vid = await asyncio.to_thread(eleven.clone, "PDD voice", str(p))
+            test = await asyncio.to_thread(eleven.synth, phrase, vid, 1.0)
+            save_settings(voice="my", eleven_voice_id=vid)
+        else:
+            msg = await m.answer("Сохраняю образец и делаю пробную фразу (первый раз - несколько минут, качается модель)...")
+            # clean mono 22 kHz wav, max 60 s - what XTTS likes as a reference
+            await asyncio.to_thread(subprocess.run, [FFMPEG, "-y", "-i", str(p), "-t", "60", "-ac", "1", "-ar", "22050", str(MY_VOICE)],
+                                    capture_output=True, check=True)
+            import cloning
+            out = WORK / "clone_test.wav"
+            await cloning.synthesize_clone(phrase, str(MY_VOICE), "ru", str(out))
+            test = out.read_bytes()
+            save_settings(voice="my")
     except Exception as e:
         await msg.edit_text(f"Не получилось: {str(e)[:400]}")
         return
-    save_settings(voice="my", eleven_voice_id=vid)
-    await m.answer_audio(BufferedInputFile(test, filename="moy_golos.mp3"),
+    await m.answer_audio(BufferedInputFile(test, filename="moy_golos.mp3" if os.environ.get("ELEVENLABS_API_KEY") else "moy_golos.wav"),
                          caption="✅ Готово! Так звучит твой клон. Все новые видео будут этим голосом.\nВернуть Антона: 🎙 Голос и скорость")
 
 
@@ -443,9 +469,15 @@ async def do_dub(m: Message, text: str) -> None:
 
     def run():
         os.environ["YANDEX_SPEED"] = sp
-        if st["voice"] == "my" and st.get("eleven_voice_id"):
+        if st["voice"] == "my" and st.get("eleven_voice_id") and os.environ.get("ELEVENLABS_API_KEY"):
             import eleven
             voice.write_bytes(eleven.synth(text, st["eleven_voice_id"], sp))
+        elif st["voice"] == "my" and MY_VOICE.exists() and xtts_ready():
+            import cloning
+            wav = WORK / "dub_xtts.wav"
+            cloning._synth(text, str(MY_VOICE), "ru", str(wav))
+            subprocess.run([FFMPEG, "-y", "-i", str(wav), "-af", f"atempo={max(0.5, min(2.0, float(sp))):.2f}", str(voice)],
+                           capture_output=True, check=True)
         else:
             v = st["voice"] if st["voice"] not in ("my", "custom") else "anton"
             voice.write_bytes(synth_yandex_v3(text, v, os.environ.get("YANDEX_API_KEY", ""), role_for(v)))
