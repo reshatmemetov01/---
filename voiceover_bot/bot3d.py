@@ -43,11 +43,25 @@ SAMPLE = "Смотри: грузовик едет по главной, а мы �
 logging.basicConfig(level=logging.INFO)
 
 
+PROMO = HERE / "promo.jpg"
+PROMO_TEXT = ("Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, "
+              "где я разобрал все 800 вопросов простым и понятным языком.")
+AWAIT_PROMO: set[int] = set()
+
+
 def settings() -> dict:
+    cur = {"voice": VOICE, "speed": os.environ.get("YANDEX_SPEED", "1.15"), "promo": True, "promo_text": PROMO_TEXT}
     try:
-        return json.loads(SETTINGS.read_text(encoding="utf-8"))
+        cur.update(json.loads(SETTINGS.read_text(encoding="utf-8")))
     except Exception:
-        return {"voice": VOICE, "speed": os.environ.get("YANDEX_SPEED", "1.15")}
+        pass
+    return cur
+
+
+def save_settings(**kw) -> dict:
+    cur = settings(); cur.update(kw)
+    SETTINGS.write_text(json.dumps(cur, ensure_ascii=False), encoding="utf-8")
+    return cur
 
 
 def role_for(v: str) -> str:
@@ -69,7 +83,7 @@ async def cmd_start(m: Message) -> None:
         "1. Пришли картинку вопроса.\n"
         "2. Пришли сценарий - текстом или .txt файлом.\n"
         "3. Жди видео (10-20 минут).\n\n"
-        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\nГолоса: /golosa\n"
+        "Можно прислать только картинку - текст придумаю сам.\nОбразец сценария: /obrazec\nГолоса: /golosa\nРеклама канала: /reklama\n"
         f"Твой id: {m.from_user.id}")
 
 
@@ -106,7 +120,7 @@ async def cmd_voice(m: Message) -> None:
         cur["voice"] = parts[1]
     if len(parts) >= 3:
         cur["speed"] = parts[2].replace(",", ".")
-    SETTINGS.write_text(json.dumps(cur), encoding="utf-8")
+    save_settings(voice=cur["voice"], speed=cur["speed"])
     await m.answer(f"Голос для видео: {cur['voice']}, скорость {cur['speed']}.\nОбразцы: /golosa")
 
 
@@ -115,9 +129,33 @@ async def cb_setv(cb: CallbackQuery) -> None:
     if OWNER and str(cb.from_user.id) != OWNER:
         return
     _, v, sp = cb.data.split(":")
-    SETTINGS.write_text(json.dumps({"voice": v, "speed": sp}), encoding="utf-8")
+    save_settings(voice=v, speed=sp)
     await cb.answer(f"Выбран {v}, {sp}")
     await cb.message.answer(f"Голос для видео: {v}, скорость {sp}.")
+
+
+@dp.message(Command("reklama"))
+async def cmd_promo(m: Message) -> None:
+    if not allowed(m):
+        return
+    arg = (m.text or "").split(maxsplit=1)[1:] or [""]
+    a = arg[0].strip()
+    if a.lower() in ("выкл", "off", "нет"):
+        save_settings(promo=False)
+        await m.answer("Реклама канала выключена. Включить: /reklama вкл")
+    elif a.lower() in ("вкл", "on", "да"):
+        save_settings(promo=True)
+        await m.answer("Реклама канала включена." + ("" if PROMO.exists() else " Но скрина ещё нет - пришли /reklama и потом скрин."))
+    elif a.lower().startswith("текст"):
+        t = a[5:].strip(" :")
+        if t:
+            save_settings(promo_text=t)
+        await m.answer(f"Текст рекламы:\n{settings()['promo_text']}")
+    else:
+        AWAIT_PROMO.add(m.from_user.id)
+        await m.answer("Пришли скрин шапки профиля (где ссылка на канал). Он будет в середине каждого ролика.\n\n"
+                       f"Сейчас Антон говорит:\n«{settings()['promo_text']}»\n\n"
+                       "Поменять текст: /reklama текст Твой текст\nВыключить: /reklama выкл")
 
 
 @dp.message(Command("obrazec"))
@@ -138,6 +176,12 @@ async def save_file(bot: Bot, file_id: str, dest: Path) -> Path:
 @dp.message(F.photo)
 async def on_photo(m: Message, bot: Bot) -> None:
     if not allowed(m):
+        return
+    if m.from_user.id in AWAIT_PROMO:
+        AWAIT_PROMO.discard(m.from_user.id)
+        await save_file(bot, m.photo[-1].file_id, PROMO)
+        save_settings(promo=True)
+        await m.answer("Скрин профиля сохранил ✅ Теперь в середине каждого ролика будет реклама канала.")
         return
     p = await save_file(bot, m.photo[-1].file_id, WORK / f"card_{m.from_user.id}.jpg")
     CARDS[m.from_user.id] = p
@@ -267,6 +311,8 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None) -
         status = await m.answer("Начал. Озвучиваю...")
         cmd = [sys.executable, "-u", str(HERE / "blog3d.py"), "--card", str(card), "--scenario", str(scen),
                "--out", str(out), "--engine", ENGINE, "--voice", settings()["voice"], "--role", role_for(settings()["voice"])]
+        if settings().get("promo") and PROMO.exists():
+            cmd += ["--promo", str(PROMO), "--promo-text", settings()["promo_text"]]
         proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(HERE), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT,
                                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "YANDEX_SPEED": settings()["speed"]})
