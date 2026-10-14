@@ -119,7 +119,7 @@ def parse_scenario(path):
             at = next((float(w.replace(",", ".")) for w in words if re.fullmatch(r"\d+([.,]\d+)?", w)), None)
             if any(norm(w).startswith(("стоит", "стоян", "припарк", "стоим")) for w in words):
                 move = "park"
-            side = -1 if any(norm(w).startswith("слева") for w in words) else 1
+            side = -1 if any(norm(w).startswith("слева") for w in words) else 0 if any(norm(w).startswith("полос") for w in words) else 1
             actors.append({"id": k, "from": frm, "move": move, "color": col, "letter": letter, "at": at, "side": side})
         else:
             print(f"! не понял строку шапки: {k}: {v}")

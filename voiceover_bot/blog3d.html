@@ -29,6 +29,11 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadow
 const scene = new THREE.Scene();
 { const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; }
 scene.background = new THREE.Color("#bcd9f0"); scene.fog = new THREE.Fog("#bcd9f0", 110, 230);
+if (SC.street) {
+  const c = document.createElement("canvas"); c.width = 4; c.height = 256; const g = c.getContext("2d"), gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, "#5b9be0"); gr.addColorStop(0.55, "#9cc6ee"); gr.addColorStop(1, "#e4eef7"); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; scene.fog = new THREE.Fog("#dbe8f3", 70, 230);
+}
 const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
 scene.add(new THREE.HemisphereLight("#eef6ff", "#8d927e", 1.05));
 const sun = new THREE.DirectionalLight("#ffffff", 1.35);
@@ -56,20 +61,20 @@ const brick = (() => { const c = document.createElement("canvas"); c.width = c.h
   g.fillStyle = "#a8615a"; g.fillRect(0, 0, 64, 64); g.fillStyle = "#8f4f49";
   for (let y = 0; y < 64; y += 8) for (let x = (y / 8) % 2 ? 0 : 8; x < 64; x += 16) g.fillRect(x, y, 15, 7);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); return t; })();
-for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+if (!SC.street) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
   box(120, 0.25, 120, new THREE.MeshLambertMaterial({map: brick}), sx * (RW + 60), 0.125, sz * (RW + 60), scene, false);
   box(120, 0.05, 120, "#6fbf4a", sx * (RW + 3.6 + 60), 0.27, sz * (RW + 3.6 + 60), scene, false);
 }
 const MISSING = Array.isArray(SC.missing) ? SC.missing : (SC.missing ? [SC.missing] : []);
 const armOpen = (d) => !MISSING.includes(d);
 const white = mat("#f4f4f2");
-for (let s = 12; s < 200; s += 4) for (const sg of [-1, 1]) {
+if (!SC.street) for (let s = 12; s < 200; s += 4) for (const sg of [-1, 1]) {
   box(0.22, 0.02, 2, white, 0, 0.02, sg * s, scene, false); box(2, 0.02, 0.22, white, sg * s, 0.02, 0, scene, false);
 }
 // stop lines (none on a plain street)
 if (!SC.street) for (const f of ["S", "N", "E", "W"]) { const [x, z] = rot(3, 10.4, TH[f]); const g = box(5.6, 0.02, 0.4, white, x, 0.02, z, scene, false); g.rotation.y = TH[f]; }
 // T-junction / street: cover the missing arms
-for (const m of MISSING) {
+if (!SC.street) for (const m of MISSING) {
   const [ax, az] = ARM[m];
   const g = new THREE.Group(); box(13, 0.26, 120, new THREE.MeshLambertMaterial({map: brick}), 0, 0.13, 0, g, false); box(13, 0.06, 116, "#6fbf4a", 0, 0.28, 2, g, false);
   g.position.set(ax * (RW + 60), 0, az * (RW + 60)); g.rotation.y = TH[m]; scene.add(g);
@@ -102,7 +107,7 @@ function facadeTex(base) {
 }
 const pastel = ["#e9cfa2", "#efe1c0", "#f0d7b3", "#e3c9a3", "#f2e6cf", "#e6d2b0"];
 let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < 7; i++) {
+if (!SC.street) for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < 7; i++) {
   const w = 10 + rnd() * 5, d = 9 + rnd() * 4, h = 9 + rnd() * 10, along = i * 16 + 6;
   const x = sx * (RW + 11 + w / 2), z = sz * (RW + 12 + along);
   const tex = facadeTex(pastel[Math.floor(rnd() * pastel.length)]); tex.repeat.set(Math.max(1, w / 4), Math.max(1, h / 8));
@@ -123,10 +128,88 @@ function tree(x, z, s = 1) {
   g.position.set(x, 0.25, z); scene.add(g);
 }
 
-for (let s = 20; s < 130; s += 9) for (const sg of [-1, 1]) {
+if (!SC.street) for (let s = 20; s < 130; s += 9) for (const sg of [-1, 1]) {
   if (armOpen(sg < 0 ? "N" : "S")) { tree(8.4, sg * s, 0.9 + (s % 3) * 0.1); tree(-8.4, sg * s, 0.95); }
   if (armOpen(sg < 0 ? "W" : "E")) { tree(sg * s, 8.4, 0.9); tree(sg * s, -8.4, 1.0); }
 }
+
+
+// ================================================================== plain street (questions about stopping, crosswalks, parking)
+function noiseTex(base, spots, rep0, rep1) {
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2200; i++) { const v = Math.floor(rnd() * 30 - 15); g.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${Math.abs(v) / 120})`; g.fillRect(rnd() * 256, rnd() * 256, 2, 2); }
+  for (let i = 0; i < spots; i++) { g.fillStyle = "rgba(40,40,44,.05)"; g.beginPath(); g.ellipse(rnd() * 256, rnd() * 256, 10 + rnd() * 30, 4 + rnd() * 12, rnd() * 3, 0, 7); g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep0, rep1); t.anisotropy = 4; return t;
+}
+function tileTex() {
+  const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d");
+  g.fillStyle = "#b9bcc0"; g.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y += 64) for (let x = 0; x < 128; x += 64) { g.fillStyle = (x + y) % 128 ? "#c4c7cb" : "#bdc0c4"; g.fillRect(x + 1, y + 1, 62, 62); }
+  g.strokeStyle = "#9da1a6"; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128); g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 128); g.moveTo(0, 64); g.lineTo(128, 64); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 200); t.anisotropy = 4; return t;
+}
+function yellowFacadeTex(rows, cols) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 256; const g = c.getContext("2d");
+  g.fillStyle = "#ddc27a"; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(120,90,40,${rnd() * 0.05})`; g.fillRect(rnd() * 256, rnd() * 256, 3, 3); }
+  g.fillStyle = "#f2e9cf"; g.fillRect(0, 0, 256, 18); g.fillRect(0, 118, 256, 8); g.fillRect(0, 244, 256, 12);        // cornice and floor bands
+  for (let r = 0; r < 2; r++) for (let q = 0; q < 2; q++) {
+    const x = 20 + q * 120, y = 28 + r * 126;
+    g.fillStyle = "#f6f1e0"; g.fillRect(x - 6, y - 6, 92, 82); g.fillStyle = "#34495e"; g.fillRect(x, y, 80, 70);
+    g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(x + 6, y + 6, 30, 58); g.fillStyle = "#f6f1e0"; g.fillRect(x + 38, y, 4, 70); g.fillRect(x, y + 32, 80, 4);
+    g.fillStyle = "#e9dfc0"; g.fillRect(x - 10, y + 72, 100, 8);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(cols, rows); t.anisotropy = 4; return t;
+}
+const leafA = new THREE.MeshLambertMaterial({color: "#5da545"}), leafB = new THREE.MeshLambertMaterial({color: "#7bc45a"}), leafC = new THREE.MeshLambertMaterial({color: "#4a9137"});
+function lushTree(x, z, sc = 1) {
+  const g = new THREE.Group();
+  const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * sc, 0.3 * sc, 3.4 * sc, 8), mat("#6e5035")); tr.position.y = 1.7 * sc; tr.castShadow = true; g.add(tr);
+  const blobs = [[0, 5.0, 0, 2.2, leafA], [1.4, 4.4, 0.6, 1.7, leafB], [-1.4, 4.5, -0.4, 1.7, leafA], [0.3, 6.3, 0.2, 1.6, leafB], [0.2, 4.2, -1.5, 1.6, leafC], [-0.3, 4.3, 1.5, 1.6, leafC], [1.0, 5.6, -0.9, 1.3, leafB], [-1.1, 5.7, 0.9, 1.3, leafA]];
+  for (const [dx, dy, dz, r, m] of blobs) { const l = new THREE.Mesh(new THREE.IcosahedronGeometry(r * sc, 2), m); l.position.set(dx * sc, dy * sc, dz * sc); l.scale.set(1, 0.88, 1); l.castShadow = true; g.add(l); }
+  g.position.set(x, 0.25, z); g.rotation.y = rnd() * 6; scene.add(g);
+}
+function lamp(x, z, dir) {
+  const g = new THREE.Group(), m = mat("#4a4f55");
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 8.2, 8), m); pole.position.y = 4.1; pole.castShadow = true; g.add(pole);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6), m); arm.rotation.z = Math.PI / 2; arm.position.set(dir * 1.3, 8.1, 0); g.add(arm);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.18, 0.4), mat("#3b4046")); head.position.set(dir * 2.5, 8.05, 0); g.add(head);
+  const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.04, 0.3), new THREE.MeshBasicMaterial({color: "#fff6d8"})); bulb.position.set(dir * 2.5, 7.94, 0); g.add(bulb);
+  g.position.set(x, 0.25, z); scene.add(g);
+}
+function buildStreet() {
+  road.material.color.set("#7db356");                                                       // ground = lawn
+  const asph = new THREE.Mesh(new THREE.PlaneGeometry(RW * 2, 420), new THREE.MeshLambertMaterial({map: noiseTex("#84878d", 16, 3, 70)}));
+  asph.rotation.x = -Math.PI / 2; asph.position.y = 0.012; asph.receiveShadow = true; scene.add(asph);
+  const tm = new THREE.MeshLambertMaterial({map: tileTex()});
+  box(5.8, 0.25, 420, tm, RW + 2.9, 0.125, 0, scene, false);                                // right pavement (tiles)
+  box(0.35, 0.34, 420, "#d9dadc", RW + 0.17, 0.17, 0, scene, false); box(0.35, 0.34, 420, "#d9dadc", -(RW + 0.17), 0.17, 0, scene, false);   // kerbs
+  box(3.2, 0.25, 420, tm, -(RW + 1.9), 0.125, 0, scene, false);                             // left pavement
+  for (let z = -200; z < 200; z += 4) box(0.18, 0.02, 2.2, white, 0, 0.025, z, scene, false);     // dashed centre line
+  for (const sx of [-1, 1]) box(0.14, 0.02, 420, white, sx * (RW - 0.35), 0.025, 0, scene, false); // edge lines
+  let zz = -190;                                                                              // facades on the right, continuous with gaps
+  while (zz < 190) {
+    const len = 18 + rnd() * 14, h = 13 + rnd() * 5, dep = 12;
+    const fm = new THREE.MeshLambertMaterial({map: yellowFacadeTex(Math.round(h / 4.2), Math.round(len / 8))});
+    box(dep, h, len, fm, RW + 8.2 + dep / 2, h / 2 + 0.25, zz + len / 2);
+    box(dep + 0.7, 0.9, len + 0.7, "#efe5c8", RW + 8.2 + dep / 2, h + 0.7, zz + len / 2);
+    zz += len + 3 + rnd() * 3;
+  }
+  zz = -190;                                                                                  // buildings behind the lawn on the left
+  while (zz < 190) {
+    const len = 20 + rnd() * 16, h = 9 + rnd() * 9, dep = 12;
+    const fm = new THREE.MeshLambertMaterial({map: yellowFacadeTex(Math.round(h / 4.2), Math.round(len / 8))}); fm.color.set("#e8efe9");
+    box(dep, h, len, fm, -(RW + 24 + dep / 2), h / 2 + 0.25, zz + len / 2);
+    zz += len + 8 + rnd() * 10;
+  }
+  for (let z = -180; z < 180; z += 6.2 + rnd() * 1.6) { lushTree(RW + 1.4, z + rnd() * 1.5, 1.05 + rnd() * 0.3); }
+  for (let z = -180; z < 180; z += 7 + rnd() * 2) { lushTree(-(RW + 2.6), z + rnd(), 1.0 + rnd() * 0.35); }
+  for (let z = -180; z < 180; z += 4.5) if (rnd() < 0.7) {                                    // bushes on the left lawn
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + rnd() * 0.6, 2), rnd() < 0.5 ? leafA : leafC); b.scale.y = 0.75; b.position.set(-(RW + 4.3 + rnd() * 1.5), 0.6, z); b.castShadow = true; scene.add(b); }
+  for (let z = -180; z < 180; z += 26) lamp(-(RW + 0.7), z + 6, 1);
+}
+if (SC.street) buildStreet();
 
 // ================================================================== signs
 function signTex(kind) {
@@ -494,7 +577,7 @@ function placeActor(a, t) {
   const th = TH[a.from];
   const set = (lx, lz, lyaw) => { const [x, z] = rot(lx, lz, th); a.obj.position.set(x, 0.25, z); a.obj.rotation.y = th + lyaw; };
   const go = GO[a.id];
-  if (a.move === "park") { set(4.9 * (a.side || 1), a.at ?? a.stop, 0); return; }
+  if (a.move === "park") { set(a.side === 0 ? 3 : 4.9 * (a.side || 1), a.at ?? a.stop, 0); return; }
   if (go === undefined || t < go) { set(3, a.stop + 18 * Math.pow(1 - ez(t / 2.6), 2), 0); }
   else {
     const k = t - go, d = ROUND ? 6.0 : a.move === "straight" ? 2.6 : a.move === "uturn" ? 4.2 : 3.4, u = ez(Math.min(1, k / d));
@@ -684,12 +767,17 @@ function crossPoint(a, b) {
 // ================================================================== camera shots
 const SHOTS = {
   "сверху": () => [V(0, 70, 24), V(0, 0, -2)],
+  "погоня": (k) => {            // camera behind our car, looking down the street (like the reference video)
+    const a = Object.values(ACT).find(x => HERO.test(x.id)) || Object.values(ACT)[0]; if (!a) return SHOTS["улица"](k);
+    const p = a.obj.position, ry = a.obj.rotation.y, back = V(0, 0, 1).applyAxisAngle(V(0, 1, 0), ry);
+    return [p.clone().addScaledVector(back, 6.6 - k * 2.4).add(V(0, 2.3 + a.obj.userData.h * 0.3, 0)), p.clone().addScaledVector(back, -30).add(V(0, 1.0, 0))];
+  },
   "улица": (k) => [V(lerp(-1.2, 1.2, ez(k)), 11.5, 38), V(0, 0.4, 7)],
   "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
   "перекресток": () => [V(17, 19, 30), V(-1, 0, 0)],
   "знак": (k) => { const up = ONEWAY && ONEWAY.from === SIGN.from ? 0.6 : 0, c = (SIGN.top || V(0, 3, 0)).clone().add(V(0, up, 0)), d = lerp(10, 7, ez(k)) + up * 3.5; const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
   "светофор": (k) => { const L = LIGHTS.S || Object.values(LIGHTS)[0] || V(7, 4.6, 10.6), d = lerp(10, 7, ez(k)); return [L.clone().add(V(-2.2, -1.4, d)), L.clone().add(V(0, -0.6, 0))]; },
-  "пешеходы": (k) => { const c = pedsCenter(Object.keys(PEDS)[0]) || V(0, 0, 0), s2 = lerp(1.1, 0.95, ez(k)); return [c.clone().add(V(7 * s2, 6 * s2, 10 * s2)), c.clone().add(V(0, 1, 0))]; },
+  "пешеходы": (k) => { const c = pedsCenter(Object.keys(PEDS)[0]) || V(0, 0, 0), s2 = lerp(1.1, 0.95, ez(k)); return [c.clone().add(V(-3.5 * s2, 5.2 * s2, 9 * s2)), c.clone().add(V(0, 1, 0))]; },
   "табличка": (k) => { const c = SIGN.plateC || V(0, 2, 0), d = lerp(4.8, 3.7, ez(k)); const [ox, oz] = rot(-0.5, d, SIGN.th || 0); return [c.clone().add(V(ox, 0.35, oz)), c.clone().add(V(0, 0.4, 0))]; },
 };
 function shot(name, k) {
@@ -713,7 +801,7 @@ function shot(name, k) {
 const BEATS = TL.beats; let lastCam = "сверху";
 BEATS.forEach(b => { b.cam = b.cam || lastCam; lastCam = b.cam; });
 function shotAt(t) {        // shot active at time t (no transition)
-  if (t < TL.cardOut + 0.5 || !BEATS.length) return shot("сверху", 0);
+  if (t < TL.cardOut + 0.5 || !BEATS.length) return shot(BEATS.length ? BEATS[0].cam : "сверху", 0);
   let i = BEATS.length - 1; for (let j = 0; j < BEATS.length; j++) if (BEATS[j].t0 <= t) i = j;
   const b = BEATS[i]; return shot(b.cam, (t - b.t0) / Math.max(1, b.t1 - b.t0));
 }
@@ -721,7 +809,7 @@ function camAt(t) {
   let p, q;
   const flyEnd = TL.cardIn + 0.6;
   if (t < flyEnd) {
-    const k = ez(t / flyEnd), [p1, q1] = shot("сверху", 0), ang = (1 - k) * 1.1;
+    const k = ez(t / flyEnd), [p1, q1] = shot(BEATS.length ? BEATS[0].cam : "сверху", 0), ang = (1 - k) * 1.1;
     const from = V(30, 95, 70), pp = from.clone().lerp(p1, k);
     p = V(pp.x * Math.cos(ang) + pp.z * Math.sin(ang), pp.y, -pp.x * Math.sin(ang) + pp.z * Math.cos(ang)); q = q1;
   } else {
@@ -730,6 +818,7 @@ function camAt(t) {
     if (kk >= 1) { p = p1; q = q1; }
     else { const [p0, q0] = shotAt(b.t0 - 0.001); p = p0.clone().lerp(p1, kk); q = q0.clone().lerp(q1, kk); }
   }
+  if (SC.street) { p = p.clone(); p.x = clamp(p.x, -6.3, 6.3); }               // stay between the tree rows
   camera.position.copy(p); camera.lookAt(q);
   // during the question the card covers the top: push the 3D picture down
   const sh = t < TL.cardOut ? 1 : 1 - ez((t - TL.cardOut) / 0.9);
