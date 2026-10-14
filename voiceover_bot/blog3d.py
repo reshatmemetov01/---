@@ -65,7 +65,7 @@ def parse_scenario(path):
             else:
                 yield norm(ln), ""
 
-    signs, lights, peds = [], {}, []
+    signs, lights, peds, zebras = [], {}, [], []
     for k, v in lines(parts[0]):
         if k in HEAD_KEYS or re.match(r"вариант\s*\d", k):
             head[k] = v
@@ -77,9 +77,18 @@ def parse_scenario(path):
                     kind = "oneway_left" if any(norm(x).startswith("налев") for x in w) else "oneway_right"
                 elif any(norm(x).startswith("круг") for x in w):
                     kind = "round"
+                elif any(norm(x).startswith(("пешеход", "переход")) for x in w):
+                    kind = "crosswalk"
+                elif any(norm(x).startswith("остановк") for x in w):
+                    kind = "nostop"
+                elif any(norm(x).startswith("стоянк") for x in w):
+                    kind = "nopark"
                 else:
                     kind = "main" if any(norm(x).startswith("главн") for x in w) else "stop" if any(norm(x).startswith("стоп") for x in w) else "yield"
                 signs.append({"kind": kind, "from": next((parse_dir(x) for x in w if parse_dir(x)), "S")})
+            continue
+        if k in ("переход", "зебра", "переходы"):
+            zebras += [parse_dir(x) for x in re.split(r"[,\s]+", v) if parse_dir(x)]
             continue
         if k == "светофор":
             for part in v.split(","):
@@ -106,7 +115,12 @@ def parse_scenario(path):
         move = next((mv for w in words for stem, mv in MOVES if norm(w).startswith(stem)), "straight")
         if frm:
             col = next((hexc for w in words for stem, hexc in CAR_COLORS if norm(w).startswith(stem)), None)
-            actors.append({"id": k, "from": frm, "move": move, "color": col})
+            letter = next((w for w in words if re.fullmatch(r"[А-ЯA-Z]", w)), None)
+            at = next((float(w.replace(",", ".")) for w in words if re.fullmatch(r"\d+([.,]\d+)?", w)), None)
+            if any(norm(w).startswith(("стоит", "стоян", "припарк", "стоим")) for w in words):
+                move = "park"
+            side = -1 if any(norm(w).startswith("слева") for w in words) else 1
+            actors.append({"id": k, "from": frm, "move": move, "color": col, "letter": letter, "at": at, "side": side})
         else:
             print(f"! не понял строку шапки: {k}: {v}")
     for block in parts[1:]:
@@ -122,7 +136,16 @@ def parse_scenario(path):
                 p = [x.strip() for x in v.split("|")]
                 if len(p) == 2:
                     p = [p[0], "", p[1]]
-                b["tags"].append({"target": norm(p[0]), "sub": p[1] if len(p) > 1 else "", "title": p[2] if len(p) > 2 else p[-1]})
+                b["tags"].append({"target": norm(p[0]), "sub": p[1] if len(p) > 1 else "", "title": p[2] if len(p) > 2 else p[-1],
+                                 "color": ("red" if len(p) > 3 and norm(p[3]).startswith("красн") else "green" if len(p) > 3 and norm(p[3]).startswith("зел") else None)})
+            elif k == "зона":
+                p = [x.strip() for x in v.split("|")]
+                red = len(p) < 2 or norm(p[1]).startswith(("нарушает", "красн", "нельзя", "плох", "нет"))
+                b.setdefault("zones", []).append([norm(p[0]), "red" if red else "green"])
+            elif k == "линейка":
+                p = [x.strip() for x in v.split("|")]
+                num = re.search(r"\d+([.,]\d+)?", p[1] if len(p) > 1 else "")
+                b.setdefault("rulers", []).append([norm(p[0]), p[1] if len(p) > 1 else "", float(num.group(0).replace(",", ".")) if num else 5.0])
             elif k == "стрелка":
                 b["arrows"] += [norm(x) for x in v.split(",") if x.strip()]
             elif k == "пересечение":
@@ -143,12 +166,15 @@ def parse_scenario(path):
             beats.append(b)
     # scene
     junction = norm(head.get("перекресток", "крест"))
-    missing = None
-    if junction.startswith("т") and not junction.startswith("тр"):
-        missing = next((parse_dir(w) for w in re.split(r"[,\s]+", junction)[1:] if parse_dir(w)), "N")
+    missing = []
+    street = junction.startswith(("улиц", "дорог", "прям"))
+    if street:
+        missing = ["E", "W"]
+    elif junction.startswith("т") and not junction.startswith("тр"):
+        missing = [next((parse_dir(w) for w in re.split(r"[,\s]+", junction)[1:] if parse_dir(w)), "N")]
     main = [parse_dir(x) for x in re.split(r"[,\s\-]+", head.get("главная", "")) if parse_dir(x)][:2]
     order = [norm(x) for x in head.get("очередь", "").split(",") if x.strip()]
-    sc = {"actors": actors, "signs": signs, "main": main, "missing": missing, "order": order,
+    sc = {"actors": actors, "signs": signs, "main": main, "missing": missing, "street": street, "zebras": zebras, "order": order,
           "lights": lights, "peds": peds, "round": junction.startswith("кольц") or junction.startswith("круг")}
     return head, beats, sc
 
