@@ -1016,6 +1016,18 @@ function drawCard(x, y, s, alpha, t, label) {
   if (label) { ov.save(); ov.globalAlpha = alpha; ov.font = `900 15px ${FONT}`; const w = ov.measureText(label).width + 18; rrect(x + 10, y + 10, w, 26, 7); ov.fillStyle = "rgba(14,16,20,.88)"; ov.fill(); ov.fillStyle = "#fff"; ov.textAlign = "left"; ov.textBaseline = "middle"; ov.fillText(label, x + 19, y + 24); ov.restore(); }
 }
 const pimg = new Image(); if (TL.promo) pimg.src = TL.promo;
+function handArrow(c, tx, ty, k, sc, al) {   // hand-drawn curved red arrow, tail on the right, head pointing left at (tx, ty)
+  if (k <= 0) return;
+  const P0 = [tx + 120 * sc, ty + 44 * sc], C = [tx + 62 * sc, ty - 26 * sc], P1 = [tx, ty], N = 28, n = Math.max(2, Math.round(N * k));
+  const pt = (u) => [(1 - u) ** 2 * P0[0] + 2 * (1 - u) * u * C[0] + u * u * P1[0], (1 - u) ** 2 * P0[1] + 2 * (1 - u) * u * C[1] + u * u * P1[1]];
+  c.save(); c.globalAlpha = al; c.strokeStyle = "#E53935"; c.lineWidth = 6.5 * sc; c.lineCap = "round"; c.lineJoin = "round";
+  c.beginPath(); for (let i = 0; i <= n; i++) { const [x, y] = pt(k * i / n); i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
+  if (k > 0.85) {
+    const hk = clamp((k - 0.85) / 0.15), a = Math.atan2(P1[1] - C[1], P1[0] - C[0]), L = 30 * sc * hk;
+    c.beginPath(); c.moveTo(tx + L * Math.cos(a + Math.PI - 0.55), ty + L * Math.sin(a + Math.PI - 0.55)); c.lineTo(tx, ty); c.lineTo(tx + L * Math.cos(a + Math.PI + 0.55), ty + L * Math.sin(a + Math.PI + 0.55)); c.stroke();
+  }
+  c.restore();
+}
 // ---- advert in a 3D phone held in a hand (own mini-scene): optional video + profile screenshot with red underline & arrow
 const PHN = TL.phone ? TL.phoneFrames || 0 : 0, PHF = [];
 for (let i = 1; i <= PHN; i++) { const im = new Image(); im.src = "pv/p" + String(i).padStart(4, "0") + ".jpg"; PHF.push(im); }
@@ -1044,14 +1056,10 @@ function phoneScreen(t, b) {
   } else if (hasShot) {                                  // screenshot + red underline + arrow
     const w = 540, h = w * pimg.naturalHeight / pimg.naturalWidth, y = Math.max(0, (960 - h) / 2);
     sx.drawImage(pimg, 0, y, w, h);
-    const [mx0, mx1, my] = TL.promoMark || [0.1, 0.7, 0.85], ls = lt - shotT, kd = clamp((ls - 0.5) / 0.6), ka = clamp((ls - 0.9) / 0.3);
+    const [mx0, mx1, my] = TL.promoMark || [0.1, 0.7, 0.85], ls = lt - shotT, kd = clamp((ls - 0.5) / 0.6), ka = clamp((ls - 0.9) / 0.5);
     const ux0 = w * mx0, ux1 = w * mx1, uy = y + h * my + 5;
     if (kd > 0) { sx.strokeStyle = "#E53935"; sx.lineWidth = 7; sx.lineCap = "round"; sx.beginPath(); sx.moveTo(ux0 - 4, uy); sx.lineTo(lerp(ux0 - 4, ux1 + 6, kd), uy); sx.stroke(); }
-    if (ka > 0) {
-      const bob = 8 * Math.sin(ls * 7); sx.save(); sx.globalAlpha = ka; sx.translate(ux1 - 4 + 0.5 * bob, uy - 24 - bob); sx.rotate(-0.6);
-      sx.fillStyle = "#E53935"; sx.strokeStyle = "#fff"; sx.lineWidth = 3; sx.beginPath();
-      sx.moveTo(0, 0); sx.lineTo(-26, -36); sx.lineTo(-9, -36); sx.lineTo(-9, -90); sx.lineTo(9, -90); sx.lineTo(9, -36); sx.lineTo(26, -36); sx.closePath(); sx.fill(); sx.stroke(); sx.restore();
-    }
+    handArrow(sx, ux1 + 8, uy - 15 + 3 * Math.sin(ls * 6), ka, 0.9, 1);
   }
   PRIG.userData.tex.needsUpdate = true;
 }
@@ -1079,13 +1087,8 @@ function promoPhase(t, b) {
     ov.save(); ov.globalAlpha = al; ov.strokeStyle = "#E53935"; ov.lineWidth = 8; ov.lineCap = "round";
     ov.beginPath(); ov.moveTo(ux0 - 6, uy); ov.lineTo(lerp(ux0 - 6, ux1 + 8, kd), uy); ov.stroke(); ov.restore();
   }
-  const ka = clamp((t - b.t0 - 1.1) / 0.3);
-  if (ka > 0) {           // arrow from above, at an angle, tip on the end of the link
-    const bob = 10 * Math.sin((t - b.t0) * 7), tipX = ux1 - 4, tipY = uy - 30, ang = -0.6;   // tilted to the right
-    ov.save(); ov.globalAlpha = al * ka; ov.translate(tipX + 0.5 * bob, tipY - bob); ov.rotate(ang);
-    ov.fillStyle = "#E53935"; ov.strokeStyle = "#fff"; ov.lineWidth = 4; ov.beginPath();
-    ov.moveTo(0, 0); ov.lineTo(-34, -48); ov.lineTo(-12, -48); ov.lineTo(-12, -120); ov.lineTo(12, -120); ov.lineTo(12, -48); ov.lineTo(34, -48); ov.closePath(); ov.fill(); ov.stroke(); ov.restore();
-  }
+  const ka = clamp((t - b.t0 - 1.1) / 0.5);
+  handArrow(ov, ux1 + 10, uy - 18 + 3 * Math.sin((t - b.t0) * 6), ka, 1.15, al);
   ov.globalAlpha = al; capBox(TL.promoCap || "ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_", W / 2, Math.min(H - 150, y + h + 190), popK(t, b.t0 + 0.4)); ov.globalAlpha = 1;
 }
 function cardPhase(t) {
