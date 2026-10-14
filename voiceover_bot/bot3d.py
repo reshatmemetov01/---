@@ -324,6 +324,19 @@ async def do_clone(m: Message, bot: Bot, file_id: str, ext: str) -> None:
                          caption="✅ Готово! Так звучит твой клон. Все новые видео будут этим голосом.\nВернуть Антона: 🎙 Голос и скорость")
 
 
+@dp.message(Command("pamyatka"))
+async def cmd_memo(m: Message) -> None:
+    """Instruction for ChatGPT & co: send it once, then give it question pictures - it answers with a ready scenario."""
+    if not allowed(m):
+        return
+    ex2 = (HERE / "scenariy_ostanovka.txt")
+    text = (avto_scenariy.RULES.strip() + "\n\nПРИМЕР 1 (перекрёсток):\n" + avto_scenariy.EXAMPLE.strip()
+            + ("\n\nПРИМЕР 2 (остановка у пешеходного перехода, \"кто нарушил\"):\n" + ex2.read_text(encoding="utf-8").strip() if ex2.exists() else "")
+            + "\n\nЕсли понял - ответь: «Готов, присылай картинку».")
+    await m.answer_document(BufferedInputFile(text.encode("utf-8"), filename="pamyatka_chatgpt.txt"),
+                            caption="Памятка для ChatGPT: скинь файл ему один раз, потом присылай картинки вопросов - он будет отвечать готовым сценарием для бота.")
+
+
 @dp.message(Command("obrazec"))
 async def cmd_sample(m: Message) -> None:
     f = HERE / "scenariy15.txt"
