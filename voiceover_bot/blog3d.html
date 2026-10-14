@@ -420,19 +420,21 @@ function modelFor(n, i) {
   return pick ? pick[1] : ["hatchback-sports", "van", "suv-luxury", "suv", "taxi"][i % 5];
 }
 const GLB = {};
+const HERO = /^(мы|бмв|bmw|е39|e39|пятерк|пятёрк)/;            // our own car: BMW E39 (real model)
 {
-  const want = new Set(SC.actors.filter(a => !a.id.startsWith("автобус") && !a.id.startsWith("трамв")).map((a, i) => modelFor(a.id, i)));
+  const want = new Set(SC.actors.filter(a => !a.id.startsWith("автобус") && !a.id.startsWith("трамв")).map((a, i) => HERO.test(a.id) ? "bmw_e39" : modelFor(a.id, i)));
   const loader = new GLTFLoader();
   await Promise.all([...want].map(name => new Promise(res => loader.load(`models/${name}.glb`, g => { GLB[name] = g.scene; res(); }, undefined, () => res()))));
 }
-function glbVehicle(name, length) {
+function glbVehicle(name, length, opt = {}) {
   const src = GLB[name]; if (!src) return null;
   const g = new THREE.Group(), m = src.clone(true);
-  m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  const bb = new THREE.Box3().setFromObject(m), size = bb.getSize(V(0, 0, 0)), k = length / size.z;
-  m.scale.setScalar(k); m.rotation.y = Math.PI;                 // model nose is +z, ours is -z
-  m.position.set(-(bb.min.x + bb.max.x) / 2 * k, -bb.min.y * k, (bb.min.z + bb.max.z) / 2 * k);
-  g.add(m);
+  m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true;
+    if (opt.color && o.material && o.material.name === "body") { o.material = o.material.clone(); o.material.color.set(opt.color); } } });
+  m.rotation.y = opt.rot ?? Math.PI;                       // Kenney models face +z, ours face -z
+  const holder = new THREE.Group(); holder.add(m); g.add(holder); g.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(holder), size = bb.getSize(V(0, 0, 0)), k = length / size.z;
+  holder.scale.setScalar(k); holder.position.set(-(bb.min.x + bb.max.x) / 2 * k, -bb.min.y * k, -(bb.min.z + bb.max.z) / 2 * k);
   g.userData = {half: length / 2, h: size.y * k, bz: length / 2 + 0.02, bx: size.x * k / 2 - 0.15, by: size.y * k * 0.42};
   return g;
 }
@@ -444,6 +446,7 @@ SC.actors.forEach((a, i) => {
   if (n.startsWith("автобус")) a.obj = bus(a.color);
   else if (n.startsWith("трамв")) a.obj = tram();
   else if (n.startsWith("грузов") || n.startsWith("зил") || n.startsWith("камаз")) a.obj = truck(a.color);
+  else if (HERO.test(n) && GLB["bmw_e39"]) a.obj = glbVehicle("bmw_e39", 4.77, {rot: 0, color: a.color});
   else if (special && GLB[mdl]) a.obj = glbVehicle(mdl, big ? 8.2 : 4.6);
   else a.obj = carReal(carKind(n), a.color || (n === "мы" ? "#ef7a22" : PALETTE[i % PALETTE.length]), i);
   scene.add(a.obj);
