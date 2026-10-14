@@ -51,6 +51,8 @@ PROMO_TEXT = ("Кстати! Найди в Телеграме бота «ПДД 
               "Там я разобрал все 800 вопросов простым и понятным языком.")
 AWAIT_PROMO: set[int] = set()
 AWAIT_PROMOVID: set[int] = set()
+AWAIT_PROMOTEXT: set[int] = set()
+PROMO_POS = {"mid": "В середине", "end": "В конце (после ответа)", "both": "В середине и в конце"}
 PROMO_VIDEO = HERE / "promo_video.mp4"
 PROMO_MODES = {"card": "🖼 Скрин на весь экран", "phone_shot": "📱 Телефон в руке: только скрин",
                "phone_video": "📱 Телефон в руке: только видео", "phone_both": "📱 Телефон в руке: видео, потом скрин"}
@@ -131,6 +133,7 @@ def menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=("📣 Выключить рекламу" if st.get("promo") else "📣 Включить рекламу"), callback_data="m:promo")],
         [InlineKeyboardButton(text="🖼 Новый скрин профиля", callback_data="m:promoimg")],
         [InlineKeyboardButton(text="📱 Реклама в телефоне (видео/скрин)", callback_data="m:phone")],
+        [InlineKeyboardButton(text="⏱ Когда показывать рекламу", callback_data="m:pos"), InlineKeyboardButton(text="✏️ Текст рекламы", callback_data="m:ptext")],
         [InlineKeyboardButton(text="📄 Образец сценария", callback_data="m:obrazec")]])
 
 
@@ -201,6 +204,16 @@ async def cb_menu(cb: CallbackQuery) -> None:
         await cb.message.answer("Как показывать рекламу в середине ролика?\n"
                                 f"Видео для телефона: {'есть' if PROMO_VIDEO.exists() else 'не загружено'}, скрин профиля: {'есть' if PROMO.exists() else 'стандартный'}.",
                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    elif act == "pos":
+        cur = settings().get("promo_pos", "mid")
+        rows = [[InlineKeyboardButton(text=("✅ " if cur == k else "") + v, callback_data=f"m:pp_{k}")] for k, v in PROMO_POS.items()]
+        await cb.message.answer("Когда ставить рекламу в ролике?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    elif act.startswith("pp_"):
+        save_settings(promo_pos=act[3:], promo=True)
+        await cb.message.answer("Готово ✅ Реклама: " + PROMO_POS.get(act[3:], act[3:]).lower())
+    elif act == "ptext":
+        AWAIT_PROMOTEXT.add(cb.from_user.id)
+        await cb.message.answer(f"Сейчас Антон говорит:\n«{settings()['promo_text']}»\n\nПришли новый текст рекламы одним сообщением (или «стандарт», чтобы вернуть этот).")
     elif act.startswith("pm_"):
         mode = act[3:]
         if mode in ("phone_video", "phone_both") and not PROMO_VIDEO.exists():
@@ -609,6 +622,13 @@ async def on_text(m: Message, bot: Bot) -> None:
     if not allowed(m) or m.text.startswith("/"):
         return
     text = plain_text(m)
+    if m.from_user.id in AWAIT_PROMOTEXT:
+        AWAIT_PROMOTEXT.discard(m.from_user.id)
+        if text.strip().lower() in ("стандарт", "стандартный", "по умолчанию"):
+            text = PROMO_TEXT
+        save_settings(promo_text=text.strip())
+        await m.answer(f"Текст рекламы сохранил ✅\n«{text.strip()}»")
+        return
     if m.from_user.id in DUB:
         if DUB[m.from_user.id]["video"] is None:
             await m.answer("Сначала пришли видео, потом текст.")
@@ -654,6 +674,7 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None, v
                    "--out", str(out), *engine_args()]
             pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
             if settings().get("promo") and pimg.exists():
+                cmd += ["--promo-pos", settings().get("promo_pos", "mid")]
                 mode = settings().get("promo_mode", "card")
                 vid_ok = PROMO_VIDEO.exists()
                 if mode == "phone_video" and vid_ok:

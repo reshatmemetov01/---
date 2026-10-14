@@ -315,7 +315,9 @@ async def build_timeline(a, head, beats, sc, work):
                 TL["phoneFrames"] = nfr; TL["phoneFps"] = 10; TL["phoneVideoDur"] = round(nfr / 10, 2)
         if not TL.get("phoneFrames") and not getattr(a, "promo", None):
             TL["phone"] = False
-    if (getattr(a, "promo", None) or TL.get("phoneFrames")) and beats:            # advert of the channel in the middle of the video
+    promo_on = bool(getattr(a, "promo", None) or TL.get("phoneFrames"))
+    ppos = getattr(a, "promo_pos", "mid")
+    if promo_on and beats and ppos in ("mid", "both"):            # advert of the channel in the middle of the video
         mid = max(1, len(beats) // 2)
         beats.insert(mid, {"voice": a.promo_text, "promo": True, "tags": [], "arrows": [], "checks": [],
                            "cam": beats[mid - 1].get("cam")})
@@ -354,6 +356,18 @@ async def build_timeline(a, head, beats, sc, work):
     hit = next((tw for w, tw in wt if re.match(r"(перв|втор|трет|четв|\d)", norm(w))), 0.4)
     TL["green"] = round(av + hit, 3)
     TL["end"] = round(av + d + 1.6, 3)
+    if promo_on and beats and ppos in ("end", "both"):         # advert after the answer
+        e0 = round(av + d + 0.5, 3)
+        eb = {"voice": a.promo_text, "promo": True, "tags": [], "arrows": [], "checks": [], "cam": beats[-1].get("cam"), "t0": e0}
+        evs = e0 + 0.15
+        ed = await say(eb["voice"], evs) if eb["voice"] else 0
+        need = 4.0
+        if TL.get("phone"):
+            need = 0.7 + TL.get("phoneVideoDur", 0) + (3.8 if getattr(a, "promo", None) else 0.0)
+        eb["t1"] = round(max(evs + ed + 0.4, e0 + need), 3)
+        beats.append(eb)
+        TL["endPromo"] = e0
+        TL["end"] = round(eb["t1"] + 0.4, 3)
     TL["beats"] = beats
     # mix voice clips at absolute times
     audio = str(work / "track.m4a")
@@ -489,6 +503,7 @@ def main():
     ap.add_argument("--promo", default=None, help="скрин профиля - реклама канала в середине ролика")
     ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
     ap.add_argument("--promo-cap", default="ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_")
+    ap.add_argument("--promo-pos", choices=["mid", "end", "both"], default="mid", help="когда показывать рекламу: в середине, в конце или и там и там")
     ap.add_argument("--phone", action="store_true", help="реклама в 3D-телефоне в руке (скрин из --promo и/или видео)")
     ap.add_argument("--phone-video", default=None, help="видео, которое играет на экране телефона")
     ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
