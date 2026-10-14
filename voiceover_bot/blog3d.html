@@ -496,42 +496,74 @@ function pathLocal(move, stop) {
 }
 const PALETTE = ["#e8e8ea", "#d64541", "#2b2f36", "#f1c40f", "#3aa0d8"];
 // real low-poly models (Kenney Car Kit, CC0); the procedural ones stay as a fallback
-function modelFor(n, i) {
-  const pick = [["мы", "sedan"], ["такси", "taxi"], ["полиц", "police"], ["скор", "ambulance"], ["пожар", "firetruck"],
-                ["фургон", "van"], ["газел", "delivery"], ["мусор", "garbage-truck"], ["трактор", "tractor"], ["фура", "delivery"], ["самосвал", "truck-flat"], ["пикап", "truck"],
-                ["внедор", "suv"], ["джип", "suv"]].find(([k]) => n.startsWith(k));
-  return pick ? pick[1] : ["hatchback-sports", "van", "suv-luxury", "suv", "taxi"][i % 5];
+// real models (your files, optimised): front is turned to -z, length is normalised
+const MODELS = {
+  e39:   {file: "bmw_e39",    len: 4.77, rot: 0,            paint: ["body"]},
+  camry: {file: "camry",      len: 4.88, rot: -Math.PI / 2, paint: ["BODY.001"], def: "#ffffff"},
+  gelik: {file: "gelik",      len: 4.92, rot: 0,            paint: ["MMercedesAMG_G63SUVRewardRecycled_2020Paint_Material1"], def: "#53585e"},
+  lada:  {file: "lada2107",   len: 4.15, rot: Math.PI / 2,  paint: ["Body", "Body2"], def: "#b22a2e"},
+  bus:   {file: "bus_maz203", len: 11.8, rot: Math.PI / 2,  paint: ["Color_F06"]},
+  zil:   {file: "zil130",     len: 6.4,  rot: Math.PI},
+  tram:  {file: "tram",       len: 10.5, rot: Math.PI / 2},
+};
+const HERO = /^(мы|бмв|bmw|е39|e39|пятерк|пятёрк)/;            // our own car: BMW E39, like the reference blogger on his Priora
+const KENNEY = [["такси", "taxi"], ["полиц", "police"], ["скор", "ambulance"], ["пожар", "firetruck"], ["фургон", "van"], ["газел", "delivery"],
+                ["мусор", "garbage-truck"], ["трактор", "tractor"], ["самосвал", "truck-flat"], ["пикап", "truck"]];
+function pickModel(n, i) {          // bus / zil / tram only when they are named in the scenario
+  if (HERO.test(n)) return "e39";
+  if (/^(камри|тойот|toyota|седан)/.test(n)) return "camry";
+  if (/^(гелик|гелен|мерседес|g63|джип|внедор|крузак)/.test(n)) return "gelik";
+  if (/^(лада|ваз|жигул|семерк|семёрк|копейк|прио|москвич)/.test(n)) return "lada";
+  if (n.startsWith("автобус")) return "bus";
+  if (/^(зил|грузов|камаз)/.test(n)) return "zil";
+  if (n.startsWith("трамв")) return "tram";
+  const k = KENNEY.find(([w]) => n.startsWith(w)); if (k) return "k:" + k[1];
+  return ["camry", "lada", "gelik"][i % 3];                    // any other car: a plain passenger car
 }
 const GLB = {};
-const HERO = /^(мы|бмв|bmw|е39|e39|пятерк|пятёрк)/;            // our own car: BMW E39 (real model)
 {
-  const want = new Set(SC.actors.filter(a => !a.id.startsWith("автобус") && !a.id.startsWith("трамв")).map((a, i) => HERO.test(a.id) ? "bmw_e39" : modelFor(a.id, i)));
+  const want = new Set(SC.actors.map((a, i) => pickModel(a.id, i)));
   const loader = new GLTFLoader();
-  await Promise.all([...want].map(name => new Promise(res => loader.load(`models/${name}.glb`, g => { GLB[name] = g.scene; res(); }, undefined, () => res()))));
+  await Promise.all([...want].map(key => new Promise(res => {
+    const f = key.startsWith("k:") ? key.slice(2) : (MODELS[key] || {}).file;
+    loader.load(`models/${f}.glb`, g => { GLB[key] = g.scene; res(); }, undefined, () => res());
+  })));
 }
-function glbVehicle(name, length, opt = {}) {
-  const src = GLB[name]; if (!src) return null;
-  const g = new THREE.Group(), m = src.clone(true);
-  m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true;
-    if (opt.color && o.material && o.material.name === "body") { o.material = o.material.clone(); o.material.color.set(opt.color); } } });
-  m.rotation.y = opt.rot ?? Math.PI;                       // Kenney models face +z, ours face -z
+function glbVehicle(key, colorHex) {
+  const src = GLB[key]; if (!src) return null;
+  const spec = key.startsWith("k:") ? {len: /fire|garbage|delivery/.test(key) ? 8.2 : 4.6, rot: Math.PI, paint: []} : MODELS[key];
+  const g = new THREE.Group(), m = src.clone(true), cache = new Map();
+  const paintCol = colorHex || spec.def;
+  const own = (mm) => { if (!cache.has(mm)) { const c = mm.clone(); cache.set(mm, c); } return cache.get(mm); };
+  m.traverse(o => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material], out = mats.map(mm => {
+      let c = own(mm);
+      if (c.transmission > 0) { c.transmission = 0; c.transparent = true; c.opacity = Math.min(c.opacity, 0.4); }   // transmission is very slow on a CPU renderer
+      if (c.transparent) c.depthWrite = false;
+      if (paintCol && spec.paint.includes(mm.name)) { c.color.set(paintCol); c.roughness = 0.62; c.metalness = 0.08; if ("clearcoat" in c) c.clearcoat = 0; c.envMapIntensity = 0.55; }
+      else if (/^(R|E)?GLASS\d*\.|^RVGLASS|window/i.test(mm.name) && !/^(R|E)GLASS/.test(mm.name) && !c.transparent) { c.color.set("#1b2733"); c.transparent = true; c.opacity = 0.6; c.depthWrite = false; c.roughness = 0.1; }
+      c.envMapIntensity = 0.9; return c;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
+    o.castShadow = !out.some(c => c.transparent); o.receiveShadow = true;
+  });
+  m.rotation.y = spec.rot;
   const holder = new THREE.Group(); holder.add(m); g.add(holder); g.updateMatrixWorld(true);
-  const bb = new THREE.Box3().setFromObject(holder), size = bb.getSize(V(0, 0, 0)), k = length / size.z;
+  const bb = new THREE.Box3().setFromObject(holder), size = bb.getSize(V(0, 0, 0)), k = spec.len / size.z;
   holder.scale.setScalar(k); holder.position.set(-(bb.min.x + bb.max.x) / 2 * k, -bb.min.y * k, -(bb.min.z + bb.max.z) / 2 * k);
-  g.userData = {half: length / 2, h: size.y * k, bz: length / 2 + 0.02, bx: size.x * k / 2 - 0.15, by: size.y * k * 0.42};
+  g.userData = {half: spec.len / 2, h: size.y * k, bz: spec.len / 2 + 0.02, bx: size.x * k / 2 - 0.15, by: size.y * k * 0.42};
   return g;
 }
 const ACT = {};
 SC.actors.forEach((a, i) => {
   const n = a.id;
-  const mdl = modelFor(n, i), special = /taxi|police|ambulance|fire|garbage|tractor|van|delivery|truck-flat/.test(mdl) && !/^(мы|машин|авто|легков|седан|камри|лада|прио|гел)/.test(n);
-  const big = special && /fire|garbage|delivery/.test(mdl);
-  if (n.startsWith("автобус")) a.obj = bus(a.color);
-  else if (n.startsWith("трамв")) a.obj = tram();
-  else if (n.startsWith("грузов") || n.startsWith("зил") || n.startsWith("камаз")) a.obj = truck(a.color);
-  else if (HERO.test(n) && GLB["bmw_e39"]) a.obj = glbVehicle("bmw_e39", 4.77, {rot: 0, color: a.color});
-  else if (special && GLB[mdl]) a.obj = glbVehicle(mdl, big ? 8.2 : 4.6);
-  else a.obj = carReal(carKind(n), a.color || (n === "мы" ? "#ef7a22" : PALETTE[i % PALETTE.length]), i);
+  const key = pickModel(n, i);
+  a.obj = glbVehicle(key, a.color);
+  if (!a.obj) {                                         // fallback if a model file is missing: simple built-in shapes
+    if (key === "bus") a.obj = bus(a.color); else if (key === "tram") a.obj = tram(); else if (key === "zil") a.obj = truck(a.color);
+    else a.obj = carReal(carKind(n), a.color || PALETTE[i % PALETTE.length], i);
+  }
   scene.add(a.obj);
   const u = a.obj.userData;
   a.stop = (ROUND ? 14 : 10.4) + u.half + 0.6;
