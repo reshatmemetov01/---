@@ -304,7 +304,18 @@ async def build_timeline(a, head, beats, sc, work):
     TL["cardOut"] = round(t, 3)
     t += 0.5
     go_names = []
-    if getattr(a, "promo", None) and beats:            # advert of the channel in the middle of the video
+    if getattr(a, "phone", False):
+        TL["phone"] = True
+        if a.phone_video and Path(a.phone_video).exists():
+            pv = work / "pv"; shutil.rmtree(pv, ignore_errors=True); pv.mkdir()
+            subprocess.run([FFMPEG, "-y", "-i", a.phone_video, "-t", "14", "-vf", "fps=10,scale=360:-2", "-q:v", "5", str(pv / "p%04d.jpg")],
+                           capture_output=True)
+            nfr = len(list(pv.glob("p*.jpg")))
+            if nfr:
+                TL["phoneFrames"] = nfr; TL["phoneFps"] = 10; TL["phoneVideoDur"] = round(nfr / 10, 2)
+        if not TL.get("phoneFrames") and not getattr(a, "promo", None):
+            TL["phone"] = False
+    if (getattr(a, "promo", None) or TL.get("phoneFrames")) and beats:            # advert of the channel in the middle of the video
         mid = max(1, len(beats) // 2)
         beats.insert(mid, {"voice": a.promo_text, "promo": True, "tags": [], "arrows": [], "checks": [],
                            "cam": beats[mid - 1].get("cam")})
@@ -318,6 +329,8 @@ async def build_timeline(a, head, beats, sc, work):
             need = 3.0
         if b.get("promo"):
             need = 4.0
+            if TL.get("phone"):
+                need = 0.7 + TL.get("phoneVideoDur", 0) + (3.8 if getattr(a, "promo", None) else 0.0)
         if b.get("go"):
             need = 3.6 + 3.2 * max(0, len(sc["order"]) - 1) + 1.0
             b["goAt"] = {nm: round(b["t0"] + 0.4 + i * 3.2, 3) for i, nm in enumerate(sc["order"])}
@@ -476,6 +489,8 @@ def main():
     ap.add_argument("--promo", default=None, help="скрин профиля - реклама канала в середине ролика")
     ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
     ap.add_argument("--promo-cap", default="ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_")
+    ap.add_argument("--phone", action="store_true", help="реклама в 3D-телефоне в руке (скрин из --promo и/или видео)")
+    ap.add_argument("--phone-video", default=None, help="видео, которое играет на экране телефона")
     ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
     ap.add_argument("--voice-dir", default=None, help="папка 001.mp3, 002.mp3... - готовая озвучка фраз по порядку")
     ap.add_argument("--stills", default=None, help="auto или список секунд через запятую - только кадры, без видео")

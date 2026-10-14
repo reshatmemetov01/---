@@ -50,6 +50,10 @@ PROMO_DEFAULT = HERE / "promo_default.jpg"
 PROMO_TEXT = ("Кстати! Найди в Телеграме бота «ПДД Эльдархан бот» - он у меня в профиле. "
               "Там я разобрал все 800 вопросов простым и понятным языком.")
 AWAIT_PROMO: set[int] = set()
+AWAIT_PROMOVID: set[int] = set()
+PROMO_VIDEO = HERE / "promo_video.mp4"
+PROMO_MODES = {"card": "🖼 Скрин на весь экран", "phone_shot": "📱 Телефон в руке: только скрин",
+               "phone_video": "📱 Телефон в руке: только видео", "phone_both": "📱 Телефон в руке: видео, потом скрин"}
 
 
 def settings() -> dict:
@@ -126,6 +130,7 @@ def menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎙 Голос и скорость", callback_data="m:voice")],
         [InlineKeyboardButton(text=("📣 Выключить рекламу" if st.get("promo") else "📣 Включить рекламу"), callback_data="m:promo")],
         [InlineKeyboardButton(text="🖼 Новый скрин профиля", callback_data="m:promoimg")],
+        [InlineKeyboardButton(text="📱 Реклама в телефоне (видео/скрин)", callback_data="m:phone")],
         [InlineKeyboardButton(text="📄 Образец сценария", callback_data="m:obrazec")]])
 
 
@@ -189,6 +194,25 @@ async def cb_menu(cb: CallbackQuery) -> None:
     elif act == "promo":
         save_settings(promo=not settings().get("promo"))
         await cb.message.edit_text(menu_text(), reply_markup=menu_kb(), parse_mode="HTML")
+    elif act == "phone":
+        cur = settings().get("promo_mode", "card")
+        rows = [[InlineKeyboardButton(text=("✅ " if cur == k else "") + v, callback_data=f"m:pm_{k}")] for k, v in PROMO_MODES.items()]
+        rows.append([InlineKeyboardButton(text="🎞 Загрузить видео для телефона", callback_data="m:promovid")])
+        await cb.message.answer("Как показывать рекламу в середине ролика?\n"
+                                f"Видео для телефона: {'есть' if PROMO_VIDEO.exists() else 'не загружено'}, скрин профиля: {'есть' if PROMO.exists() else 'стандартный'}.",
+                                reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    elif act.startswith("pm_"):
+        mode = act[3:]
+        if mode in ("phone_video", "phone_both") and not PROMO_VIDEO.exists():
+            AWAIT_PROMOVID.add(cb.from_user.id)
+            save_settings(promo_mode=mode, promo=True)
+            await cb.message.answer("Режим выбран. Видео для телефона ещё нет - пришли его (до 14 секунд, лучше вертикальное) 🎞")
+        else:
+            save_settings(promo_mode=mode, promo=True)
+            await cb.message.answer("Готово ✅ " + PROMO_MODES.get(mode, mode))
+    elif act == "promovid":
+        AWAIT_PROMOVID.add(cb.from_user.id)
+        await cb.message.answer("Пришли видео для телефона (до 14 секунд, лучше вертикальное) 🎞")
     elif act == "promoimg":
         AWAIT_PROMO.add(cb.from_user.id)
         await cb.message.answer("Пришли новый скрин шапки профиля 📷")
@@ -461,6 +485,13 @@ async def got_dub_video(m: Message, bot: Bot, file_id: str) -> None:
 async def on_video(m: Message, bot: Bot) -> None:
     if not allowed(m):
         return
+    if m.from_user.id in AWAIT_PROMOVID:
+        AWAIT_PROMOVID.discard(m.from_user.id)
+        await save_file(bot, m.video.file_id, PROMO_VIDEO)
+        if settings().get("promo_mode", "card") in ("card", "phone_shot"):
+            save_settings(promo_mode="phone_both")
+        await m.answer("Видео сохранил ✅ Теперь в середине ролика будет телефон в руке с твоим видео (меню → 📱 Реклама в телефоне - можно сменить режим).")
+        return
     if m.from_user.id not in DUB:
         await m.answer("Чтобы озвучить видео голосом Антона - нажми /ozvuchka, потом пришли видео.")
         return
@@ -623,7 +654,16 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None, v
                    "--out", str(out), *engine_args()]
             pimg = PROMO if PROMO.exists() else PROMO_DEFAULT
             if settings().get("promo") and pimg.exists():
-                cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
+                mode = settings().get("promo_mode", "card")
+                vid_ok = PROMO_VIDEO.exists()
+                if mode == "phone_video" and vid_ok:
+                    cmd += ["--phone", "--phone-video", str(PROMO_VIDEO), "--promo-text", settings()["promo_text"]]
+                elif mode == "phone_both" and vid_ok:
+                    cmd += ["--phone", "--phone-video", str(PROMO_VIDEO), "--promo", str(pimg), "--promo-text", settings()["promo_text"]]
+                elif mode == "phone_shot":
+                    cmd += ["--phone", "--promo", str(pimg), "--promo-text", settings()["promo_text"]]
+                else:
+                    cmd += ["--promo", str(pimg), "--promo-text", settings()["promo_text"]]
             if settings()["voice"] == "custom":         # voice-over from another site: give the text, wait for the audio
                 r = await asyncio.to_thread(subprocess.run, cmd + ["--dump-lines"], cwd=str(HERE), capture_output=True, text=True,
                                             env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=600)
