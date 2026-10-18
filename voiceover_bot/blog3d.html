@@ -36,8 +36,8 @@ if (SC.street) {
 }
 const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
 scene.add(new THREE.HemisphereLight("#eef6ff", "#a3a79a", 1.25));
-const sun = new THREE.DirectionalLight("#ffffff", 1.35);
-sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 2048, TL.fast ? 1024 : 2048);
+const sun = new THREE.DirectionalLight("#fff4e0", 1.5);
+sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 4096, TL.fast ? 1024 : 4096); sun.shadow.radius = 3; sun.shadow.bias = -0.0004;
 Object.assign(sun.shadow.camera, {left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 200});
 scene.add(sun);
 const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({color: c}, o));
@@ -162,12 +162,14 @@ function yellowFacadeTex(rows, cols) {
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(cols, rows); t.anisotropy = 4; return t;
 }
-const leafA = new THREE.MeshLambertMaterial({color: "#5da545"}), leafB = new THREE.MeshLambertMaterial({color: "#7bc45a"}), leafC = new THREE.MeshLambertMaterial({color: "#4a9137"});
+const leafA = new THREE.MeshLambertMaterial({color: "#58b13d"}), leafB = new THREE.MeshLambertMaterial({color: "#86d15a"}), leafC = new THREE.MeshLambertMaterial({color: "#3f9a34"});
 function lushTree(x, z, sc = 1) {
   const g = new THREE.Group();
   const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * sc, 0.3 * sc, 3.4 * sc, 8), mat("#6e5035")); tr.position.y = 1.7 * sc; tr.castShadow = true; g.add(tr);
-  const blobs = [[0, 5.0, 0, 2.2, leafA], [1.4, 4.4, 0.6, 1.7, leafB], [-1.4, 4.5, -0.4, 1.7, leafA], [0.3, 6.3, 0.2, 1.6, leafB], [0.2, 4.2, -1.5, 1.6, leafC], [-0.3, 4.3, 1.5, 1.6, leafC], [1.0, 5.6, -0.9, 1.3, leafB], [-1.1, 5.7, 0.9, 1.3, leafA]];
+  const blobs = [[0, 5.0, 0, 2.2, leafA], [1.4, 4.4, 0.6, 1.7, leafB], [-1.4, 4.5, -0.4, 1.7, leafA], [0.3, 6.3, 0.2, 1.6, leafB], [0.2, 4.2, -1.5, 1.6, leafC], [-0.3, 4.3, 1.5, 1.6, leafC], [1.0, 5.6, -0.9, 1.3, leafB], [-1.1, 5.7, 0.9, 1.3, leafA],
+    [1.9, 5.3, -0.4, 1.2, leafB], [-1.9, 5.2, 0.5, 1.2, leafC], [0.1, 7.2, -0.2, 1.1, leafB], [0.9, 3.9, 1.1, 1.1, leafA]];
   for (const [dx, dy, dz, r, m] of blobs) { const l = new THREE.Mesh(new THREE.IcosahedronGeometry(r * sc, 2), m); l.position.set(dx * sc, dy * sc, dz * sc); l.scale.set(1, 0.88, 1); l.castShadow = true; g.add(l); }
+  for (const [bx, bz, bl] of [[0.5, 0.2, 1.3], [-0.4, -0.3, 1.1]]) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * sc, 0.12 * sc, bl * sc, 6), mat("#6e5035")); br.position.set(bx * sc, 3.5 * sc, bz * sc); br.rotation.z = -bx * 0.9; g.add(br); }
   g.position.set(x, 0.25, z); g.rotation.y = rnd() * 6; scene.add(g);
 }
 function lamp(x, z, dir) {
@@ -538,11 +540,12 @@ const MODELS = {
   zil:   {file: "zil130",     len: 6.4,  rot: Math.PI},
   tram:  {file: "tram",       len: 10.5, rot: Math.PI / 2},
 };
-const HERO = /^(мы|бмв|bmw|е39|e39|пятерк|пятёрк)/;            // our own car: BMW E39, like the reference blogger on his Priora
+const HERO = /^(мы)$/;            // our own car: VAZ-2107 (the "driver" explaining the rules); the BMW E39 is a normal car in the scene
 const KENNEY = [["такси", "taxi"], ["полиц", "police"], ["скор", "ambulance"], ["пожар", "firetruck"], ["фургон", "van"], ["газел", "delivery"],
                 ["мусор", "garbage-truck"], ["трактор", "tractor"], ["самосвал", "truck-flat"], ["пикап", "truck"]];
 function pickModel(n, i) {          // bus / zil / tram only when they are named in the scenario
-  if (HERO.test(n)) return "e39";
+  if (HERO.test(n)) return "lada";
+  if (/^(бмв|bmw|е39|e39|пятерк|пятёрк|бумер)/.test(n)) return "e39";
   if (/^(камри|тойот|toyota|седан)/.test(n)) return "camry";
   if (/^(гелик|гелен|мерседес|g63|джип|внедор|крузак)/.test(n)) return "gelik";
   if (/^(лада|ваз|жигул|семерк|семёрк|копейк|прио|москвич)/.test(n)) return "lada";
@@ -573,7 +576,7 @@ function glbVehicle(key, colorHex) {
       let c = own(mm);
       if (c.transmission > 0) { c.transmission = 0; c.transparent = true; c.opacity = Math.min(c.opacity, 0.4); }   // transmission is very slow on a CPU renderer
       if (c.transparent) c.depthWrite = false;
-      if (paintCol && spec.paint.includes(mm.name)) { c.color.set(paintCol); c.roughness = 0.62; c.metalness = 0.08; if ("clearcoat" in c) c.clearcoat = 0; c.envMapIntensity = 0.55; }
+      if (paintCol && spec.paint.includes(mm.name)) { c.color.set(paintCol); c.roughness = 0.62; c.metalness = 0.08; if ("clearcoat" in c) c.clearcoat = 0; c.emissive.set(paintCol); c.emissiveIntensity = 0.16; }
       else if (/^(R|E)?GLASS\d*\.|^RVGLASS|window/i.test(mm.name) && !/^(R|E)GLASS/.test(mm.name) && !c.transparent) { c.color.set("#1b2733"); c.transparent = true; c.opacity = 0.6; c.depthWrite = false; c.roughness = 0.1; }
       c.envMapIntensity = 0.9; return c;
     });
@@ -864,8 +867,8 @@ function shot(name, k) {
   if (name && name.startsWith("пешеход")) return SHOTS["пешеходы"](k);
   if (name && /^обл[её]т\s/.test(name)) {                              // fly around a vehicle
     const a2 = findActor(name.replace(/^обл[её]т\s*/, ""));
-    if (a2) { const p = a2.obj.position, u2 = a2.obj.userData, R = 5.2 + u2.half, ang = 0.7 + k * 2.6;
-      return [V(p.x + Math.sin(ang) * R, 2.4 + u2.h * 0.55, p.z + Math.cos(ang) * R), V(p.x, u2.h * 0.45, p.z)]; }
+    if (a2) { const p = a2.obj.position, u2 = a2.obj.userData, R = 7.8 + u2.half * 1.3, ang = 0.7 + k * 2.6;
+      return [V(p.x + Math.sin(ang) * R, 3.2 + u2.h * 0.6, p.z + Math.cos(ang) * R), V(p.x, u2.h * 0.45, p.z)]; }
   }
   const a = findActor(name);
   if (!a) return SHOTS["сверху"](k);
@@ -1039,8 +1042,11 @@ if (TL.phone) {
   const skin = new THREE.MeshStandardMaterial({color: "#ecc7b9", roughness: 0.7});
   const cap = (r, l, x, y, z, rx, rz) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, l, 6, 14), skin); m.position.set(x, y, z); m.rotation.set(rx || 0, 0, rz || 0); PRIG.add(m); return m; };
   const palm = cap(1.15, 1.2, 0, -1.3, -0.55); palm.scale.set(1.12, 1, 0.38);                                      // soft rounded palm
-  for (const [x, l, y, r] of [[-0.98, 1.7, 0.7, 0.26], [-0.33, 2.15, 0.95, 0.27], [0.33, 2.05, 0.9, 0.27], [0.98, 1.6, 0.65, 0.25]]) cap(r, l, x, y, -0.58);   // slim fingers
-  cap(0.3, 1.5, 1.75, -0.95, -0.5, 0, -0.95);                                                                       // thumb
+  for (const [x, l, y, r] of [[-0.98, 0.9, 0.35, 0.26], [-0.33, 1.15, 0.5, 0.27], [0.33, 1.1, 0.48, 0.27], [0.98, 0.85, 0.32, 0.25]]) {   // slim fingers: base + tip segment, slightly curled
+    cap(r, l, x, y + 0.15, -0.58); const tip = cap(r * 0.92, l * 0.75, x, y + l + 0.55, -0.5, -0.18); tip.scale.z = 0.95;
+    const nail = new THREE.Mesh(new THREE.SphereGeometry(r * 0.7, 10, 8), new THREE.MeshStandardMaterial({color: "#f4ddd3", roughness: 0.4})); nail.scale.set(0.8, 0.5, 0.25); nail.position.set(x, y + l * 1.4 + 0.75, -0.3); PRIG.add(nail);
+  }
+  cap(0.3, 0.8, 1.55, -0.85, -0.5, 0, -0.95); cap(0.27, 0.6, 2.1, -0.35, -0.45, 0, -0.55);                          // thumb: two segments
   const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.6, 20), skin); wrist.position.set(0, -3.1, -0.6); PRIG.add(wrist);
   const cuff = new THREE.Mesh(new THREE.CylinderGeometry(1.12, 1.2, 1.6, 22), new THREE.MeshStandardMaterial({color: "#15171c", roughness: 0.9})); cuff.position.set(0, -4.35, -0.6); PRIG.add(cuff);
   const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 3.55, 0.2), new THREE.MeshStandardMaterial({color: "#101319", roughness: 0.35, metalness: 0.5})); body.position.set(0, -0.2, 0); PRIG.add(body);
