@@ -35,7 +35,7 @@ if (SC.street) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; scene.fog = new THREE.Fog("#dbe8f3", 70, 230);
 }
 const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
-scene.add(new THREE.HemisphereLight("#eef6ff", "#8d927e", 1.05));
+scene.add(new THREE.HemisphereLight("#eef6ff", "#a3a79a", 1.25));
 const sun = new THREE.DirectionalLight("#ffffff", 1.35);
 sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 2048, TL.fast ? 1024 : 2048);
 Object.assign(sun.shadow.camera, {left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 200});
@@ -144,9 +144,9 @@ function noiseTex(base, spots, rep0, rep1) {
 }
 function tileTex() {
   const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d");
-  g.fillStyle = "#b9bcc0"; g.fillRect(0, 0, 128, 128);
-  for (let y = 0; y < 128; y += 64) for (let x = 0; x < 128; x += 64) { g.fillStyle = (x + y) % 128 ? "#c4c7cb" : "#bdc0c4"; g.fillRect(x + 1, y + 1, 62, 62); }
-  g.strokeStyle = "#9da1a6"; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128); g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 128); g.moveTo(0, 64); g.lineTo(128, 64); g.stroke();
+  g.fillStyle = "#d3d5d8"; g.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y += 64) for (let x = 0; x < 128; x += 64) { g.fillStyle = (x + y) % 128 ? "#e2e4e6" : "#dadcdf"; g.fillRect(x + 1, y + 1, 62, 62); }
+  g.strokeStyle = "#b4b8bd"; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128); g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 128); g.moveTo(0, 64); g.lineTo(128, 64); g.stroke();
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 200); t.anisotropy = 4; return t;
 }
 function yellowFacadeTex(rows, cols) {
@@ -180,7 +180,7 @@ function lamp(x, z, dir) {
 }
 function buildStreet() {
   road.material.color.set("#7db356");                                                       // ground = lawn
-  const asph = new THREE.Mesh(new THREE.PlaneGeometry(RW * 2, 420), new THREE.MeshLambertMaterial({map: noiseTex("#84878d", 16, 3, 70)}));
+  const asph = new THREE.Mesh(new THREE.PlaneGeometry(RW * 2, 420), new THREE.MeshLambertMaterial({map: noiseTex("#a9adb4", 16, 3, 70)}));
   asph.rotation.x = -Math.PI / 2; asph.position.y = 0.012; asph.receiveShadow = true; scene.add(asph);
   const tm = new THREE.MeshLambertMaterial({map: tileTex()});
   box(5.8, 0.25, 420, tm, RW + 2.9, 0.125, 0, scene, false);                                // right pavement (tiles)
@@ -1036,11 +1036,13 @@ const SCR = document.createElement("canvas"); SCR.width = 540; SCR.height = 960;
 if (TL.phone) {
   PS.background = new THREE.Color("#8d97a6"); PCAM.position.set(0, 0.35, 10.4);
   PS.add(new THREE.HemisphereLight("#ffffff", "#7a8190", 1.25)); const dl = new THREE.DirectionalLight("#fff6e8", 1.6); dl.position.set(-3, 5, 6); PS.add(dl);
-  const skin = new THREE.MeshStandardMaterial({color: "#e8b6a6", roughness: 0.75, flatShading: true});
-  const cap = (r, l, x, y, z, rx, rz) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, l, 4, 8), skin); m.position.set(x, y, z); m.rotation.set(rx || 0, 0, rz || 0); PRIG.add(m); return m; };
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(2.55, 2.5, 0.55), skin); palm.position.set(0, -1.15, -0.55); PRIG.add(palm);
-  for (const [x, l, y] of [[-0.95, 1.5, 0.35], [-0.32, 1.85, 0.5], [0.32, 1.8, 0.45], [0.95, 1.4, 0.3]]) cap(0.3, l, x, y + 0.45, -0.55);
-  cap(0.33, 1.3, 1.65, -0.9, -0.45, 0, -0.9);                  // thumb on the right side
+  const skin = new THREE.MeshStandardMaterial({color: "#ecc7b9", roughness: 0.7});
+  const cap = (r, l, x, y, z, rx, rz) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, l, 6, 14), skin); m.position.set(x, y, z); m.rotation.set(rx || 0, 0, rz || 0); PRIG.add(m); return m; };
+  const palm = cap(1.15, 1.2, 0, -1.3, -0.55); palm.scale.set(1.12, 1, 0.38);                                      // soft rounded palm
+  for (const [x, l, y, r] of [[-0.98, 1.7, 0.7, 0.26], [-0.33, 2.15, 0.95, 0.27], [0.33, 2.05, 0.9, 0.27], [0.98, 1.6, 0.65, 0.25]]) cap(r, l, x, y, -0.58);   // slim fingers
+  cap(0.3, 1.5, 1.75, -0.95, -0.5, 0, -0.95);                                                                       // thumb
+  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.6, 20), skin); wrist.position.set(0, -3.1, -0.6); PRIG.add(wrist);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(1.12, 1.2, 1.6, 22), new THREE.MeshStandardMaterial({color: "#15171c", roughness: 0.9})); cuff.position.set(0, -4.35, -0.6); PRIG.add(cuff);
   const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 3.55, 0.2), new THREE.MeshStandardMaterial({color: "#101319", roughness: 0.35, metalness: 0.5})); body.position.set(0, -0.2, 0); PRIG.add(body);
   const tex = new THREE.CanvasTexture(SCR); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.86, 3.31), new THREE.MeshBasicMaterial({map: tex})); screen.position.set(0, -0.2, 0.106); PRIG.add(screen);
