@@ -119,7 +119,7 @@ def parse_scenario(path):
             at = next((float(w.replace(",", ".")) for w in words if re.fullmatch(r"\d+([.,]\d+)?", w)), None)
             if any(norm(w).startswith(("стоит", "стоян", "припарк", "стоим")) for w in words):
                 move = "park"
-            side = -1 if any(norm(w).startswith("слева") for w in words) else 0 if any(norm(w).startswith("полос") for w in words) else 1
+            side = 2 if any(norm(w).startswith("соседн") for w in words) else -1 if any(norm(w).startswith("слева") for w in words) else 0 if any(norm(w).startswith("полос") for w in words) else 1
             actors.append({"id": k, "from": frm, "move": move, "color": col, "letter": letter, "at": at, "side": side})
         else:
             print(f"! не понял строку шапки: {k}: {v}")
@@ -146,6 +146,9 @@ def parse_scenario(path):
                 p = [x.strip() for x in v.split("|")]
                 num = re.search(r"\d+([.,]\d+)?", p[1] if len(p) > 1 else "")
                 b.setdefault("rulers", []).append([norm(p[0]), p[1] if len(p) > 1 else "", float(num.group(0).replace(",", ".")) if num else 5.0])
+            elif k == "перестроить":
+                p = [x.strip() for x in v.split("|")]
+                b.setdefault("shifts", []).append([norm(p[0]), -1 if len(p) > 1 and norm(p[1]).startswith(("лев", "влев")) else 1])
             elif k == "стрелка":
                 b["arrows"] += [norm(x) for x in v.split(",") if x.strip()]
             elif k == "пересечение":

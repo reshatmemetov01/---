@@ -546,7 +546,7 @@ const KENNEY = [["такси", "taxi"], ["полиц", "police"], ["скор", "
 function pickModel(n, i) {          // bus / zil / tram only when they are named in the scenario
   if (HERO.test(n)) return "lada";
   if (/^(бмв|bmw|е39|e39|пятерк|пятёрк|бумер)/.test(n)) return "e39";
-  if (/^(камри|тойот|toyota|седан)/.test(n)) return "camry";
+  if (/^(камри|тойот|toyota|седан|легков)/.test(n)) return "camry";
   if (/^(гелик|гелен|мерседес|g63|джип|внедор|крузак)/.test(n)) return "gelik";
   if (/^(лада|ваз|жигул|семерк|семёрк|копейк|прио|москвич)/.test(n)) return "lada";
   if (n.startsWith("автобус")) return "bus";
@@ -576,7 +576,7 @@ function glbVehicle(key, colorHex) {
       let c = own(mm);
       if (c.transmission > 0) { c.transmission = 0; c.transparent = true; c.opacity = Math.min(c.opacity, 0.4); }   // transmission is very slow on a CPU renderer
       if (c.transparent) c.depthWrite = false;
-      if (paintCol && spec.paint.includes(mm.name)) { c.color.set(paintCol); c.roughness = 0.62; c.metalness = 0.08; if ("clearcoat" in c) c.clearcoat = 0; c.emissive.set(paintCol); c.emissiveIntensity = 0.16; }
+      if (paintCol && (spec.paint || []).includes(mm.name)) { c.color.set(paintCol); c.roughness = 0.62; c.metalness = 0.08; if ("clearcoat" in c) c.clearcoat = 0; c.emissive.set(paintCol); c.emissiveIntensity = 0.16; }
       else if (/^(R|E)?GLASS\d*\.|^RVGLASS|window/i.test(mm.name) && !/^(R|E)GLASS/.test(mm.name) && !c.transparent) { c.color.set("#1b2733"); c.transparent = true; c.opacity = 0.6; c.depthWrite = false; c.roughness = 0.1; }
       c.envMapIntensity = 0.9; return c;
     });
@@ -644,7 +644,13 @@ function placeActor(a, t) {
   const th = TH[a.from];
   const set = (lx, lz, lyaw) => { const [x, z] = rot(lx, lz, th); a.obj.position.set(x, 0.25, z); a.obj.rotation.y = th + lyaw; };
   const go = GO[a.id];
-  if (a.move === "park") { set(a.side === 0 ? 3 : 4.9 * (a.side || 1), a.at ?? a.stop, 0); return; }
+  if (a.move === "park") {
+    let dx = 0, yaw = 0;                                         // lane changes ("Перестроить:"): drift sideways during the beat and stay there
+    for (const b of (TL.beats || [])) for (const [nm, dir] of (b.shifts || [])) if (findActor(nm) === a) {
+      const q = clamp((t - (b.t0 + 0.6)) / 2.4), e = ez(q); dx += dir * 2.3 * e; yaw += dir * 0.16 * Math.sin(Math.PI * q);
+    }
+    set((a.side === 0 ? 3 : a.side === 2 ? -3 : 4.9 * (a.side || 1)) + dx, a.at ?? a.stop, yaw); return;
+  }
   if (go === undefined || t < go) { set(3, a.stop + 18 * Math.pow(1 - ez(t / 2.6), 2), 0); }
   else {
     const k = t - go, d = ROUND ? 6.0 : a.move === "straight" ? 2.6 : a.move === "uturn" ? 4.2 : 3.4, u = ez(Math.min(1, k / d));
@@ -853,6 +859,12 @@ const SHOTS = {
     const a = Object.values(ACT).find(x => HERO.test(x.id)) || Object.values(ACT)[0]; if (!a) return SHOTS["улица"](k);
     const p = a.obj.position, ry = a.obj.rotation.y, back = V(0, 0, 1).applyAxisAngle(V(0, 1, 0), ry);
     return [p.clone().addScaledVector(back, 6.6 - k * 2.4).add(V(0, 2.3 + a.obj.userData.h * 0.3, 0)), p.clone().addScaledVector(back, -30).add(V(0, 1.0, 0))];
+  },
+  "полосы": (k) => {            // behind and above a group of cars standing side by side (lane-change scenes)
+    const as = Object.values(ACT).filter(x => !x.id.startsWith("пешех")); if (!as.length) return SHOTS["улица"](k);
+    const c = V(0, 0, 0); as.forEach(x => c.add(x.obj.position)); c.multiplyScalar(1 / as.length);
+    const back = V(0, 0, 1).applyAxisAngle(V(0, 1, 0), as[0].obj.rotation.y), d = lerp(15, 13, ez(k));
+    return [c.clone().addScaledVector(back, d).add(V(0, 6.2, 0)), c.clone().addScaledVector(back, -9).add(V(0, 0.4, 0))];
   },
   "улица": (k) => [V(lerp(-1.2, 1.2, ez(k)), 11.5, 38), V(0, 0.4, 7)],
   "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
@@ -1116,6 +1128,7 @@ function cardPhase(t) {
 
 // ================================================================== frame
 let firstMain = BEATS.find(b => b.main), firstMainT = firstMain ? firstMain.t0 : 1e9;
+window.__dbg = () => ({acts: Object.values(ACT).map(a => [a.id, a.obj.position.toArray(), a.obj.rotation.y, a.side, a.at, a.stop]), cam: camera.position.toArray()});
 window.renderAt = (t) => {
   for (const a of Object.values(ACT)) placeActor(a, t);
   for (const pd of Object.values(PEDS)) placePeds(pd, t);
