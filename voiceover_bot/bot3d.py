@@ -755,10 +755,25 @@ async def run_job(m: Message, bot: Bot, scenario: str, uid: int | None = None, v
         await m.answer_video(FSInputFile(out), caption=f"Готово! Копия на ноуте: {out.name}", supports_streaming=True)
 
 
+def cleanup_old() -> None:
+    """Free disk: drop leftovers of crashed renders (temp blog3d_* folders) and work files older than a day."""
+    import shutil
+    now = time.time()
+    for d in Path(tempfile.gettempdir()).glob("blog3d_*"):
+        shutil.rmtree(d, ignore_errors=True)
+    for f in WORK.iterdir():
+        try:
+            if now - f.stat().st_mtime > 86400:
+                shutil.rmtree(f, ignore_errors=True) if f.is_dir() else f.unlink()
+        except OSError:
+            pass
+
+
 async def main() -> None:
     if not BOT_TOKEN:
         raise SystemExit('Нет токена. Сначала: $env:BOT_TOKEN = "токен от @BotFather"')
     WORK.mkdir(parents=True, exist_ok=True)
+    cleanup_old()
     bot = Bot(BOT_TOKEN)
     print("Бот запущен. Не закрывай это окно.")
     await dp.start_polling(bot)

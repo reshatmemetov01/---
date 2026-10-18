@@ -456,8 +456,8 @@ async def main_async(a):
     TL["scene"] = sc
     TL["fast"] = bool(os.environ.get("BLOG3D_FAST")) or (os.cpu_count() or 4) <= 2
     if TL["fast"] and a.fps == 30:
-        a.fps = 24                       # weak server: fewer frames, lighter 3D (the overlay text stays sharp)
-        print("Слабый сервер: быстрый режим (24 кадра/с, облегчённое 3D)")
+        a.fps = 15                       # weak server: half the frames (doubled at encode), 3D at lower resolution; overlay text stays sharp
+        print("Слабый сервер: лёгкий режим (15 кадров/с, облегчённое 3D)")
     if a.promo:
         Image.open(a.promo).convert("RGB").save(work / "promo.jpg", quality=92)
         TL["promo"] = "promo.jpg"
@@ -481,9 +481,10 @@ async def main_async(a):
     print("Encoding...")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([FFMPEG, "-y", "-framerate", str(a.fps), "-i", str(frames / "f%05d.jpg"), "-i", audio,
-                    "-vf", "scale=1080:1920:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast" if TL.get("fast") else "medium", "-crf", "20" if TL.get("fast") else "19",
+                    "-vf", ("fps=30," if a.fps < 30 else "") + "scale=1080:1920:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast" if TL.get("fast") else "medium", "-crf", "20" if TL.get("fast") else "19",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-t", f"{TL['end']:.2f}",
                     "-movflags", "+faststart", a.out], check=True, capture_output=True)
+    shutil.rmtree(frames, ignore_errors=True)          # frames are the biggest disk hog: drop them right away
     if not a.workdir:
         shutil.rmtree(work, ignore_errors=True)
     print(f"Done: {a.out}")

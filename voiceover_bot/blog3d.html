@@ -22,8 +22,8 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // ================================================================== renderer / light
-const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: true, preserveDrawingBuffer: true});
-renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: !TL.fast, preserveDrawingBuffer: true});
+renderer.setPixelRatio(TL.fast ? 0.7 : 1); renderer.setSize(W, H, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
