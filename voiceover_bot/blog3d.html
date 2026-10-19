@@ -57,13 +57,14 @@ const yawOf = (dx, dz) => Math.atan2(-dx, -dz);
 const road = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), mat("#55595f"));
 road.rotation.x = -Math.PI / 2; road.receiveShadow = true; scene.add(road);
 const RW = 6;
-const brick = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
-  g.fillStyle = "#a8615a"; g.fillRect(0, 0, 64, 64); g.fillStyle = "#8f4f49";
-  for (let y = 0; y < 64; y += 8) for (let x = (y / 8) % 2 ? 0 : 8; x < 64; x += 16) g.fillRect(x, y, 15, 7);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); return t; })();
+const brick = (() => { const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d");
+  g.fillStyle = "#d3d5d8"; g.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y += 64) for (let x = 0; x < 128; x += 64) { g.fillStyle = (x + y) % 128 ? "#e2e4e6" : "#dadcdf"; g.fillRect(x + 1, y + 1, 62, 62); }
+  g.strokeStyle = "#b4b8bd"; g.lineWidth = 2; g.strokeRect(0, 0, 128, 128); g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 128); g.moveTo(0, 64); g.lineTo(128, 64); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); t.anisotropy = 4; return t; })();
 if (!SC.street) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
   box(120, 0.25, 120, new THREE.MeshLambertMaterial({map: brick}), sx * (RW + 60), 0.125, sz * (RW + 60), scene, false);
-  box(120, 0.05, 120, "#6fbf4a", sx * (RW + 3.6 + 60), 0.27, sz * (RW + 3.6 + 60), scene, false);
+  box(120, 0.05, 120, "#7db356", sx * (RW + 3.6 + 60), 0.27, sz * (RW + 3.6 + 60), scene, false);
 }
 const MISSING = Array.isArray(SC.missing) ? SC.missing : (SC.missing ? [SC.missing] : []);
 const armOpen = (d) => !MISSING.includes(d);
@@ -107,13 +108,14 @@ function facadeTex(base) {
 }
 const pastel = ["#e9cfa2", "#efe1c0", "#f0d7b3", "#e3c9a3", "#f2e6cf", "#e6d2b0"];
 let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+if (!SC.street) road.material = new THREE.MeshLambertMaterial({map: noiseTex("#a9adb4", 16, 60, 60)});
 if (!SC.street) for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < 7; i++) {
   const w = 10 + rnd() * 5, d = 9 + rnd() * 4, h = 9 + rnd() * 10, along = i * 16 + 6;
   const x = sx * (RW + 11 + w / 2), z = sz * (RW + 12 + along);
-  const tex = facadeTex(pastel[Math.floor(rnd() * pastel.length)]); tex.repeat.set(Math.max(1, w / 4), Math.max(1, h / 8));
+  const tex = yellowFacadeTex(Math.max(1, Math.round(h / 4.2)), Math.max(1, Math.round(w / 8)));
   box(w, h, d, new THREE.MeshLambertMaterial({map: tex}), x, h / 2 + 0.25, z); box(w + 0.4, 0.6, d + 0.4, "#8a7f74", x, h + 0.55, z);
   if (i < 5) {
-    const tex2 = facadeTex(pastel[(i + 2) % pastel.length]); tex2.repeat.set(3, Math.max(1, h / 8));
+    const tex2 = yellowFacadeTex(Math.max(1, Math.round(h / 4.2)), 2);
     const x2 = sx * (RW + 12 + along), z2 = sz * (RW + 11 + d / 2);
     box(d, h * 0.9, w, new THREE.MeshLambertMaterial({map: tex2}), x2, h * 0.45 + 0.25, z2); box(d + 0.4, 0.6, w + 0.4, "#8a7f74", x2, h * 0.9 + 0.55, z2);
   }
@@ -126,11 +128,6 @@ function tree(x, z, s = 1) {
     const l = new THREE.Mesh(new THREE.IcosahedronGeometry(r * s, 1), leaf); l.position.set(dx * s, dy * s, dz * s); l.castShadow = true; g.add(l);
   }
   g.position.set(x, 0.25, z); scene.add(g);
-}
-
-if (!SC.street) for (let s = 20; s < 130; s += 9) for (const sg of [-1, 1]) {
-  if (armOpen(sg < 0 ? "N" : "S")) { tree(8.4, sg * s, 0.9 + (s % 3) * 0.1); tree(-8.4, sg * s, 0.95); }
-  if (armOpen(sg < 0 ? "W" : "E")) { tree(sg * s, 8.4, 0.9); tree(sg * s, -8.4, 1.0); }
 }
 
 
@@ -212,6 +209,16 @@ function buildStreet() {
   for (let z = -180; z < 180; z += 26) lamp(-(RW + 0.7), z + 6, 1);
 }
 if (SC.street) buildStreet();
+else {                                                       // junction: lush trees + lamps along every open arm, like the street scenes
+  for (let q = 20; q < 130; q += 8.5) for (const sg of [-1, 1]) {
+    if (armOpen(sg < 0 ? "N" : "S")) { lushTree(RW + 1.6, sg * (q + rnd()), 0.95 + rnd() * 0.3); lushTree(-(RW + 1.6), sg * (q + 3 + rnd()), 0.95 + rnd() * 0.3); }
+    if (armOpen(sg < 0 ? "W" : "E")) { lushTree(sg * (q + rnd()), RW + 1.6, 0.95 + rnd() * 0.3); lushTree(sg * (q + 3 + rnd()), -(RW + 1.6), 0.95 + rnd() * 0.3); }
+  }
+  for (let q = 24; q < 120; q += 26) for (const sg of [-1, 1]) {
+    if (armOpen(sg < 0 ? "N" : "S")) lamp(-(RW + 0.7), sg * q, 1);
+    if (armOpen(sg < 0 ? "W" : "E")) { lamp(sg * q, RW + 0.7, 1); }
+  }
+}
 
 // ================================================================== signs
 function signTex(kind) {
@@ -867,8 +874,8 @@ const SHOTS = {
     return [c.clone().addScaledVector(back, d).add(V(0, 6.2, 0)), c.clone().addScaledVector(back, -9).add(V(0, 0.4, 0))];
   },
   "улица": (k) => [V(lerp(-1.2, 1.2, ez(k)), 11.5, 38), V(0, 0.4, 7)],
-  "общий": () => [V(17, 19, 30), V(-1, 0, 0)],
-  "перекресток": () => [V(17, 19, 30), V(-1, 0, 0)],
+  "общий": (k) => [V(lerp(5, 9, ez(k)), 34, 24), V(-1.5, 0, 0)],
+  "перекресток": (k) => [V(lerp(5, 9, ez(k)), 34, 24), V(-1.5, 0, 0)],
   "знак": (k) => { const up = ONEWAY && ONEWAY.from === SIGN.from ? 0.6 : 0, c = (SIGN.top || V(0, 3, 0)).clone().add(V(0, up, 0)), d = lerp(10, 7, ez(k)) + up * 3.5; const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
   "светофор": (k) => { const L = LIGHTS.S || Object.values(LIGHTS)[0] || V(7, 4.6, 10.6), d = lerp(10, 7, ez(k)); return [L.clone().add(V(-2.2, -1.4, d)), L.clone().add(V(0, -0.6, 0))]; },
   "пешеходы": (k) => { const c = pedsCenter(Object.keys(PEDS)[0]) || V(0, 0, 0), s2 = lerp(1.1, 0.95, ez(k)); return [c.clone().add(V(-3.5 * s2, 5.2 * s2, 9 * s2)), c.clone().add(V(0, 1, 0))]; },
