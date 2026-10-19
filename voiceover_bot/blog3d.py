@@ -385,6 +385,17 @@ async def build_timeline(a, head, beats, sc, work):
               f"amix=inputs={len(clips) + 1}:duration=first:normalize=0[out]")
     subprocess.run([FFMPEG, "-y", *inp, "-filter_complex", ";".join(fl), "-map", "[out]", "-t", end,
                     "-c:a", "aac", "-b:a", "192k", audio], check=True, capture_output=True, timeout=600)
+    if getattr(a, "music", None) and Path(a.music).exists():
+        mixed = str(work / "track_music.m4a")
+        fl = (f"[1:a]volume={a.music_vol},afade=t=in:d=1.2,afade=t=out:st={max(0, TL['end'] - 2.0):.2f}:d=2.0[m];"
+              "[m][0:a]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[mc];"
+              "[0:a][mc]amix=inputs=2:duration=first:normalize=0[out]")
+        r = subprocess.run([FFMPEG, "-y", "-i", audio, "-stream_loop", "-1", "-i", str(a.music), "-filter_complex", fl, "-map", "[out]",
+                            "-t", end, "-c:a", "aac", "-b:a", "192k", mixed], capture_output=True, timeout=600)
+        if r.returncode == 0:
+            audio = mixed
+        else:
+            print("музыка не добавилась:", r.stderr.decode("utf-8", "ignore")[-300:])
     return TL, audio
 
 
@@ -508,6 +519,8 @@ def main():
     ap.add_argument("--promo-text", default="Кстати! Переходи по ссылке в моём профиле. Там закрытый канал, где я разобрал все 800 вопросов простым и понятным языком.")
     ap.add_argument("--promo-cap", default="ВСЕ *800 ВОПРОСОВ* - В _TG-БОТЕ_")
     ap.add_argument("--promo-pos", choices=["mid", "end", "both"], default="mid", help="когда показывать рекламу: в середине, в конце или и там и там")
+    ap.add_argument("--music", default=None, help="фоновая музыка (mp3): тихо под голосом, во время речи приглушается")
+    ap.add_argument("--music-vol", type=float, default=0.5, help="громкость музыки относительно файла (0.5 = тихо)")
     ap.add_argument("--phone", action="store_true", help="реклама в 3D-телефоне в руке (скрин из --promo и/или видео)")
     ap.add_argument("--phone-video", default=None, help="видео, которое играет на экране телефона")
     ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
