@@ -488,7 +488,7 @@ async def main_async(a):
         TL["card"] = {"img": "card.png", "ar": im.height / im.width, "boxes": TL_card_boxes, "correct": correct}
     TL["scene"] = sc
     TL["fast"] = bool(os.environ.get("BLOG3D_FAST")) or (os.cpu_count() or 4) <= 2
-    if TL["fast"] and a.fps == 30:
+    if TL["fast"] and a.fps == 30 and not getattr(a, "keep_fps", False):
         a.fps = 15                       # weak server: half the frames (doubled at encode), 3D at lower resolution; overlay text stays sharp
         print("Слабый сервер: лёгкий режим (15 кадров/с, облегчённое 3D)")
     if a.promo:
@@ -540,6 +540,7 @@ def main():
     ap.add_argument("--promo-pos", choices=["mid", "end", "both"], default="mid", help="когда показывать рекламу: в середине, в конце или и там и там")
     ap.add_argument("--music", default=None, help="фоновая музыка (mp3): тихо под голосом, во время речи приглушается")
     ap.add_argument("--music-vol", type=float, default=0.5, help="громкость музыки относительно файла (0.5 = тихо)")
+    ap.add_argument("--keep-fps", action="store_true", help="на слабом сервере не снижать кадры/с (плавнее, но дольше)")
     ap.add_argument("--phone", action="store_true", help="реклама в 3D-телефоне в руке (скрин из --promo и/или видео)")
     ap.add_argument("--phone-video", default=None, help="видео, которое играет на экране телефона")
     ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
