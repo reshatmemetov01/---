@@ -66,6 +66,7 @@ def parse_scenario(path):
                 yield norm(ln), ""
 
     signs, lights, peds, zebras = [], {}, [], []
+    extra = {}
     for k, v in lines(parts[0]):
         if k in HEAD_KEYS or re.match(r"вариант\s*\d", k):
             head[k] = v
@@ -102,6 +103,15 @@ def parse_scenario(path):
                         lights.update({"E": "red" if c == "green" else "green", "W": "red" if c == "green" else "green"})
                     else:
                         lights.update({"E": c, "W": c})
+            continue
+        if k == "разделитель":                       # a median strip with bushes along an arm: two carriageways
+            extra.setdefault("median", []).append(next((parse_dir(x) for x in re.split(r"[,\s]+", v) if parse_dir(x)), "E"))
+            continue
+        if k == "разметка":
+            extra["doubleline"] = "двойн" in norm(v)
+            continue
+        if k == "прохожая":                          # a woman walking along the pavement of an arm
+            extra["walker"] = next((parse_dir(x) for x in re.split(r"[,\s]+", v) if parse_dir(x)), "E")
             continue
         if k.startswith("пешеход"):
             w = re.split(r"[,\s]+", v)
@@ -146,6 +156,8 @@ def parse_scenario(path):
                 p = [x.strip() for x in v.split("|")]
                 num = re.search(r"\d+([.,]\d+)?", p[1] if len(p) > 1 else "")
                 b.setdefault("rulers", []).append([norm(p[0]), p[1] if len(p) > 1 else "", float(num.group(0).replace(",", ".")) if num else 5.0])
+            elif k == "часть":
+                b.setdefault("parts", []).extend(int(x) for x in re.findall(r"\d", v))
             elif k == "перестроить":
                 p = [x.strip() for x in v.split("|")]
                 b.setdefault("shifts", []).append([norm(p[0]), -1 if len(p) > 1 and norm(p[1]).startswith(("лев", "влев")) else 1])
@@ -178,7 +190,7 @@ def parse_scenario(path):
     main = [parse_dir(x) for x in re.split(r"[,\s\-]+", head.get("главная", "")) if parse_dir(x)][:2]
     order = [norm(x) for x in head.get("очередь", "").split(",") if x.strip()]
     sc = {"actors": actors, "signs": signs, "main": main, "missing": missing, "street": street, "zebras": zebras, "order": order,
-          "lights": lights, "peds": peds, "round": junction.startswith("кольц") or junction.startswith("круг")}
+          "lights": lights, "peds": peds, "round": junction.startswith("кольц") or junction.startswith("круг"), **extra}
     return head, beats, sc
 
 

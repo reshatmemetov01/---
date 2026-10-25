@@ -69,9 +69,12 @@ if (!SC.street) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
 const MISSING = Array.isArray(SC.missing) ? SC.missing : (SC.missing ? [SC.missing] : []);
 const armOpen = (d) => !MISSING.includes(d);
 const white = mat("#f4f4f2");
+const MEDIAN = SC.median || [];
 if (!SC.street) for (let s = 12; s < 200; s += 4) for (const sg of [-1, 1]) {
-  box(0.22, 0.02, 2, white, 0, 0.02, sg * s, scene, false); box(2, 0.02, 0.22, white, sg * s, 0.02, 0, scene, false);
+  if (!SC.doubleline) box(0.22, 0.02, 2, white, 0, 0.02, sg * s, scene, false);
+  if (!MEDIAN.includes(sg > 0 ? "E" : "W")) box(2, 0.02, 0.22, white, sg * s, 0.02, 0, scene, false);
 }
+if (!SC.street && SC.doubleline) for (const sg of [-1, 1]) for (const ox of [-0.16, 0.16]) box(0.1, 0.02, 130, "#f2c200", ox, 0.03, sg * (12 + 65), scene, false);
 // stop lines (none on a plain street)
 if (!SC.street) for (const f of ["S", "N", "E", "W"]) { const [x, z] = rot(3, 10.4, TH[f]); const g = box(5.6, 0.02, 0.4, white, x, 0.02, z, scene, false); g.rotation.y = TH[f]; }
 // T-junction / street: cover the missing arms
@@ -218,6 +221,34 @@ else {                                                       // junction: lush t
     if (armOpen(sg < 0 ? "N" : "S")) lamp(-(RW + 0.7), sg * q, 1);
     if (armOpen(sg < 0 ? "W" : "E")) { lamp(sg * q, RW + 0.7, 1); }
   }
+}
+// arm helper: world point at "along" the arm and "across" it (positive across = the side nearer to us for the E arm)
+const armPt = (d, along, across, y = 0) => { const [ax, az] = ARM[d]; return V(ax * along - az * across, y, az * along + ax * across); };
+for (const d of MEDIAN) {                              // median strip with bushes between the two carriageways
+  const [ax, az] = ARM[d], len = 120;
+  const strip = box(ax ? len : 1.8, 0.32, ax ? 1.8 : len, "#d9dadc", ax * (RW + 4 + len / 2), 0.16, az * (RW + 4 + len / 2), scene, false);
+  box(ax ? len - 0.6 : 1.2, 0.06, ax ? 1.2 : len - 0.6, "#6aa84f", ax * (RW + 4 + len / 2), 0.34, az * (RW + 4 + len / 2), scene, false);
+  for (let q = RW + 5; q < RW + len; q += 2.2) {
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 + rnd() * 0.25, 1), rnd() < 0.5 ? leafA : leafC);
+    b.scale.y = 0.8; const p2 = armPt(d, q, (rnd() - 0.5) * 0.5, 0.75); b.position.copy(p2); b.castShadow = true; scene.add(b);
+  }
+}
+const PARTS = {};
+function partPlane(n, color) {                         // translucent highlight of one carriageway of the divided road
+  const d = MEDIAN[0]; if (!d) return null;
+  const g = new THREE.Mesh(new THREE.PlaneGeometry(40, RW - 1.0), new THREE.MeshBasicMaterial({color, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false}));
+  g.rotation.x = -Math.PI / 2; const c = armPt(d, RW + 4 + 20, (n === 1 ? 1 : -1) * (1.0 + (RW - 1.0) / 2), 0.09);
+  g.position.copy(c); if (ARM[d][1]) g.rotation.z = Math.PI / 2; g.renderOrder = 3; scene.add(g); return (PARTS[n] = g);
+}
+if (MEDIAN.length) { partPlane(1, "#3d7be0"); partPlane(2, "#9b59d6"); }
+let WALK = null;
+if (SC.walker) { WALK = person("#8e44ad", 3); WALK.scale.setScalar(1.0); scene.add(WALK); }
+function placeWalker(t) {
+  if (!WALK) return;
+  const d = SC.walker, k = ((t * 0.045) % 1), along = lerp(60, 9, k), [ax, az] = ARM[d];
+  const p = armPt(d, along, RW + 1.2); WALK.position.set(p.x, 0.25, p.z);
+  WALK.rotation.y = Math.atan2(-ax, -az) + Math.PI;   // face along the arm toward the junction
+  walkPose(WALK, t, true, 3);
 }
 
 // ================================================================== signs
@@ -848,6 +879,7 @@ function target(name, t) {
   if (name === "табличка") return SIGN.plateC || V(0, 0, 0);
   if (name.startsWith("табличка.толст")) return SIGN.thick || V(0, 0, 0);
   if (name.startsWith("табличка.тонк")) return SIGN.thin || V(0, 0, 0);
+  if (name === "часть1" || name === "часть2") { const d = MEDIAN[0] || "E"; return armPt(d, RW + 0.6, (name === "часть1" ? 1 : -1) * (1.0 + (RW - 1.0) / 2), 0.3); }
   if (name.startsWith("главн")) return MAINPT.clone().setY(0.2);
   if (name.startsWith("второст")) return SECPT.clone().setY(0.2);
   return V(0, 0.2, 0);
@@ -874,6 +906,7 @@ const SHOTS = {
     return [c.clone().addScaledVector(back, d).add(V(0, 6.2, 0)), c.clone().addScaledVector(back, -9).add(V(0, 0.4, 0))];
   },
   "улица": (k) => [V(lerp(-1.2, 1.2, ez(k)), 11.5, 38), V(0, 0.4, 7)],
+  "боковой": (k) => [V(lerp(-9, -3, ez(k)), 44, 34), V(lerp(7, 10, ez(k)), 0, -1)],
   "общий": (k) => [V(lerp(5, 9, ez(k)), 34, 24), V(-1.5, 0, 0)],
   "перекресток": (k) => [V(lerp(5, 9, ez(k)), 34, 24), V(-1.5, 0, 0)],
   "знак": (k) => { const up = ONEWAY && ONEWAY.from === SIGN.from ? 0.6 : 0, c = (SIGN.top || V(0, 3, 0)).clone().add(V(0, up, 0)), d = lerp(10, 7, ez(k)) + up * 3.5; const [ox, oz] = rot(-1.6 * d / 7, d, SIGN.th || 0); return [c.clone().add(V(ox, -0.9, oz)), c.clone().add(V(0, -0.75, 0))]; },
@@ -1139,7 +1172,7 @@ window.__dbg = () => ({acts: Object.values(ACT).map(a => [a.id, a.obj.position.t
 window.renderAt = (t) => {
   for (const a of Object.values(ACT)) placeActor(a, t);
   for (const pd of Object.values(PEDS)) placePeds(pd, t);
-  placeCrowd(t);
+  placeCrowd(t); placeWalker(t);
   const bon = Math.floor(t * 1.6) % 2 === 0; for (const [m, c] of BLINK) { if (c) m.material.color.set(bon ? c : new THREE.Color(c).multiplyScalar(0.18)); else m.visible = bon; }
   camAt(t);
   const A0 = TL.answer[0];
@@ -1166,6 +1199,7 @@ window.renderAt = (t) => {
   for (const z of Object.values(ZONES)) z.visible = false;
   for (const r of Object.values(RULERS)) r.visible = false;
   const cb = BEATS.find(b => b.t0 <= t && t < b.t1), RLAB = [];
+  for (const n of [1, 2]) if (PARTS[n]) PARTS[n].material.opacity = (cb && (cb.parts || []).includes(n)) ? 0.42 * ez((t - cb.t0 - 0.2) / 0.4) * (1 - clamp((t - cb.t1 + 0.3) / 0.3)) : 0;
   if (cb && t < A0) {
     const kk = ez((t - cb.t0 - 0.2) / 0.4), oo = 1 - clamp((t - cb.t1 + 0.3) / 0.3);
     for (const [nm, kind] of (cb.zones || [])) {
