@@ -488,6 +488,7 @@ async def main_async(a):
         TL["card"] = {"img": "card.png", "ar": im.height / im.width, "boxes": TL_card_boxes, "correct": correct}
     TL["scene"] = sc
     TL["fast"] = bool(os.environ.get("BLOG3D_FAST")) or (os.cpu_count() or 4) <= 2
+    TL["mid"] = bool(os.environ.get("BLOG3D_MID"))          # middle quality: full resolution, no multisampling (about 2x faster than full)
     if TL["fast"] and a.fps == 30 and not getattr(a, "keep_fps", False):
         a.fps = 15                       # weak server: half the frames (doubled at encode), 3D at lower resolution; overlay text stays sharp
         print("Слабый сервер: лёгкий режим (15 кадров/с, облегчённое 3D)")
@@ -517,8 +518,8 @@ async def main_async(a):
                     "-vf", ("fps=30," if a.fps < 30 else "") + "scale=1080:1920:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast" if TL.get("fast") else "medium", "-crf", "20" if TL.get("fast") else "19",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-t", f"{TL['end']:.2f}",
                     "-movflags", "+faststart", a.out], check=True, capture_output=True)
-    shutil.rmtree(frames, ignore_errors=True)          # frames are the biggest disk hog: drop them right away
-    if not a.workdir:
+    if not a.workdir:                                  # frames are the biggest disk hog: drop them (unless the work dir was asked for explicitly)
+        shutil.rmtree(frames, ignore_errors=True)
         shutil.rmtree(work, ignore_errors=True)
     print(f"Done: {a.out}")
 

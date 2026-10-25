@@ -22,7 +22,7 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // ================================================================== renderer / light
-const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: !TL.fast, preserveDrawingBuffer: true});
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById("gl"), antialias: !(TL.fast || TL.mid), preserveDrawingBuffer: true});
 renderer.setPixelRatio(TL.fast ? 0.7 : 1); renderer.setSize(W, H, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -37,7 +37,7 @@ if (SC.street) {
 const camera = new THREE.PerspectiveCamera(42, W / H, 0.3, 500);
 scene.add(new THREE.HemisphereLight("#eef6ff", "#a3a79a", 1.25));
 const sun = new THREE.DirectionalLight("#fff4e0", 1.5);
-sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 4096, TL.fast ? 1024 : 4096); sun.shadow.radius = 3; sun.shadow.bias = -0.0004;
+sun.position.set(40, 70, 25); sun.castShadow = true; sun.shadow.mapSize.set(TL.fast ? 1024 : 2048, TL.fast ? 1024 : 2048); sun.shadow.radius = 3; sun.shadow.bias = -0.0004;
 Object.assign(sun.shadow.camera, {left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 200});
 scene.add(sun);
 const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({color: c}, o));
@@ -924,6 +924,10 @@ function shot(name, k) {
   if (name && name.startsWith("пешеход")) return SHOTS["пешеходы"](k);
   if (name && /^обл[её]т\s/.test(name)) {                              // fly around a vehicle
     const a2 = findActor(name.replace(/^обл[её]т\s*/, ""));
+    if (a2 && SC.street) {                                   // street: slow push-in from the middle of the road (no sideways orbit: the trees are in the way)
+      const p = a2.obj.position, u2 = a2.obj.userData, side = p.x >= 0 ? 1 : -1;
+      return [V(side * lerp(0.2, 1.4, ez(k)), 3.8 + u2.h * 0.55, p.z + lerp(10.5, 8.0, ez(k))), V(p.x * 0.85, u2.h * 0.5, p.z)];
+    }
     if (a2) { const p = a2.obj.position, u2 = a2.obj.userData, R = 7.8 + u2.half * 1.3, ang = 0.7 + k * 2.6;
       return [V(p.x + Math.sin(ang) * R, 3.2 + u2.h * 0.6, p.z + Math.cos(ang) * R), V(p.x, u2.h * 0.45, p.z)]; }
   }
