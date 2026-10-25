@@ -640,8 +640,8 @@ SC.actors.forEach((a, i) => {
   scene.add(a.obj);
   const u = a.obj.userData;
   a.stop = (ROUND ? 14 : 10.4) + u.half + 0.6;
-  a.curve = pathLocal(a.move === "park" ? "straight" : a.move, a.stop);
-  if (a.move !== "straight" && a.move !== "park" && !n.startsWith("трамв")) { const m = new THREE.MeshBasicMaterial({color: "#ffae00"}), side = a.move === "right" ? 1 : -1;
+  a.curve = pathLocal(a.move === "park" || a.move === "cruise" ? "straight" : a.move, a.stop);
+  if (a.move !== "straight" && a.move !== "park" && a.move !== "cruise" && !n.startsWith("трамв")) { const m = new THREE.MeshBasicMaterial({color: "#ffae00"}), side = a.move === "right" ? 1 : -1;
     a.blinkers = [box(0.3, 0.22, 0.12, m, side * u.bx, u.by, -u.bz, a.obj, false), box(0.3, 0.22, 0.12, m, side * u.bx, u.by, u.bz, a.obj, false)]; }
   ACT[n] = a;
 });
@@ -682,6 +682,10 @@ function placeActor(a, t) {
   const th = TH[a.from];
   const set = (lx, lz, lyaw) => { const [x, z] = rot(lx, lz, th); a.obj.position.set(x, 0.25, z); a.obj.rotation.y = th + lyaw; };
   const go = GO[a.id];
+  if (a.move === "cruise") {                         // drives toward the junction from its start distance, then waits before the stop line
+    const t0 = TL.cardOut || 0, v = 5.2, z = Math.max(a.stopAt ?? 15.5, (a.at ?? 90) - v * Math.max(0, t - t0));
+    set(a.side === 2 ? -3 : 3, z, 0); return;
+  }
   if (a.move === "park") {
     let dx = 0, yaw = 0;                                         // lane changes ("Перестроить:"): drift sideways during the beat and stay there
     for (const b of (TL.beats || [])) for (const [nm, dir] of (b.shifts || [])) if (findActor(nm) === a) {
