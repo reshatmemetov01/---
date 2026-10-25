@@ -896,12 +896,13 @@ function crossPoint(a, b) {
 }
 
 // ================================================================== camera shots
+let CUR_T = 0; const CARDSH = (t) => t < TL.cardOut ? 1 : 1 - ez((t - TL.cardOut) / 0.9);
 const SHOTS = {
   "сверху": () => [V(0, 70, 24), V(0, 0, -2)],
   "погоня": (k) => {            // camera behind our car, looking down the street (like the reference video)
     const a = Object.values(ACT).find(x => HERO.test(x.id)) || Object.values(ACT)[0]; if (!a) return SHOTS["улица"](k);
     const p = a.obj.position, ry = a.obj.rotation.y, back = V(0, 0, 1).applyAxisAngle(V(0, 1, 0), ry);
-    return [p.clone().addScaledVector(back, 6.6 - k * 2.4).add(V(0, 2.3 + a.obj.userData.h * 0.3, 0)), p.clone().addScaledVector(back, -30).add(V(0, 1.0, 0))];
+    return [p.clone().addScaledVector(back, 9.2 - k * 1.5).add(V(0, 3.6 + a.obj.userData.h * 0.3, 0)), p.clone().addScaledVector(back, -lerp(6.5, 0.6, CARDSH(CUR_T))).add(V(0, 1.1, 0))];   // whole car stays in view (also while the question card pushes the picture down)
   },
   "полосы": (k) => {            // behind and above a group of cars standing side by side (lane-change scenes)
     const as = Object.values(ACT).filter(x => !x.id.startsWith("пешех")); if (!as.length) return SHOTS["улица"](k);
@@ -944,7 +945,7 @@ function shotAt(t) {        // shot active at time t (no transition)
   const b = BEATS[i]; return shot(b.cam, (t - b.t0) / Math.max(1, b.t1 - b.t0));
 }
 function camAt(t) {
-  let p, q;
+  let p, q; CUR_T = t;
   const flyEnd = TL.cardIn + 0.6;
   if (t < flyEnd && !(BEATS.length && BEATS[0].cam === "погоня")) {
     const k = ez(t / flyEnd), [p1, q1] = shot(BEATS.length ? BEATS[0].cam : "сверху", 0), ang = (1 - k) * 1.1;
