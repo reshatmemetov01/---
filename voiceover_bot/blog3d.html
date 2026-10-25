@@ -683,7 +683,7 @@ function placeActor(a, t) {
   const set = (lx, lz, lyaw) => { const [x, z] = rot(lx, lz, th); a.obj.position.set(x, 0.25, z); a.obj.rotation.y = th + lyaw; };
   const go = GO[a.id];
   if (a.move === "cruise") {                         // drives toward the junction from its start distance, then waits before the stop line
-    const t0 = TL.cardOut || 0, v = 5.2, z = Math.max(a.stopAt ?? 15.5, (a.at ?? 90) - v * Math.max(0, t - t0));
+    const t0 = TL.cardOut || 0, v = 5.2, z = Math.max(SC.cruiseStop ?? 15.5, (a.at ?? 90) - v * Math.max(0, t - t0));
     set(a.side === 2 ? -3 : 3, z, 0); return;
   }
   if (a.move === "park") {

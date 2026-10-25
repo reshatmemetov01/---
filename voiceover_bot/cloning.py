@@ -55,6 +55,11 @@ def _synth(text: str, speaker_wav: str, language: str, out_path: str) -> None:
         language=language,
         file_path=out_path,
         split_sentences=True,
+        speed=1.0,                 # не ускорять: на ускорении клон "глотает" слова
+        temperature=0.55,          # меньше разброса - чётче произношение
+        repetition_penalty=5.0,
+        top_k=30,
+        top_p=0.8,
     )
 
 

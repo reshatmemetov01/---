@@ -107,6 +107,11 @@ def parse_scenario(path):
         if k == "разделитель":                       # a median strip with bushes along an arm: two carriageways
             extra.setdefault("median", []).append(next((parse_dir(x) for x in re.split(r"[,\s]+", v) if parse_dir(x)), "E"))
             continue
+        if k == "доезжает":                          # where a driving car ("едет") stops before the junction / crosswalk, metres from the centre
+            m_ = re.search(r"\d+([.,]\d+)?", v)
+            if m_:
+                extra["cruiseStop"] = float(m_.group(0).replace(",", "."))
+            continue
         if k == "разметка":
             extra["doubleline"] = "двойн" in norm(v)
             continue
