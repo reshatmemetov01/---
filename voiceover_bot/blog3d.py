@@ -407,7 +407,7 @@ async def build_timeline(a, head, beats, sc, work):
     if getattr(a, "music", None) and Path(a.music).exists():
         mixed = str(work / "track_music.m4a")
         fl = (f"[1:a]volume={a.music_vol},afade=t=in:d=1.2,afade=t=out:st={max(0, TL['end'] - 2.0):.2f}:d=2.0[m];"
-              "[m][0:a]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[mc];"
+              "[m][0:a]sidechaincompress=threshold=0.05:ratio=3.5:attack=20:release=400[mc];"
               "[0:a][mc]amix=inputs=2:duration=first:normalize=0[out]")
         r = subprocess.run([FFMPEG, "-y", "-i", audio, "-stream_loop", "-1", "-i", str(a.music), "-filter_complex", fl, "-map", "[out]",
                             "-t", end, "-c:a", "aac", "-b:a", "192k", mixed], capture_output=True, timeout=600)
