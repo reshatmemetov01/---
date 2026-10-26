@@ -340,7 +340,7 @@ async def build_timeline(a, head, beats, sc, work):
     promo_on = bool(getattr(a, "promo", None) or TL.get("phoneFrames"))
     ppos = getattr(a, "promo_pos", "mid")
     if promo_on and beats and ppos in ("mid", "both"):            # advert of the channel in the middle of the video
-        mid = max(1, len(beats) // 2)
+        mid = max(1, min(len(beats) - 1, getattr(a, "promo_after", None) or len(beats) // 2))
         beats.insert(mid, {"voice": a.promo_text, "promo": True, "tags": [], "arrows": [], "checks": [],
                            "cam": beats[mid - 1].get("cam")})
     for b in beats:
@@ -542,6 +542,7 @@ def main():
     ap.add_argument("--music", default=None, help="фоновая музыка (mp3): тихо под голосом, во время речи приглушается")
     ap.add_argument("--music-vol", type=float, default=0.5, help="громкость музыки относительно файла (0.5 = тихо)")
     ap.add_argument("--keep-fps", action="store_true", help="на слабом сервере не снижать кадры/с (плавнее, но дольше)")
+    ap.add_argument("--promo-after", type=int, default=None, help="после какого по счёту кадра ставить рекламу в середине (по умолчанию - ровно посередине)")
     ap.add_argument("--phone", action="store_true", help="реклама в 3D-телефоне в руке (скрин из --promo и/или видео)")
     ap.add_argument("--phone-video", default=None, help="видео, которое играет на экране телефона")
     ap.add_argument("--dump-lines", action="store_true", help="только вывести все фразы по порядку (для озвучки на другом сайте)")
