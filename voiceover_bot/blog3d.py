@@ -80,6 +80,8 @@ def parse_scenario(path):
                     kind = "round"
                 elif any(norm(x).startswith(("пешеход", "переход")) for x in w):
                     kind = "crosswalk"
+                elif any(norm(x).startswith("запрещ") for x in w) and any(norm(x).startswith("направ") for x in w):
+                    kind = "noright"                      # 3.18.1 "no right turn"
                 elif any(norm(x).startswith("остановк") for x in w):
                     kind = "nostop"
                 elif any(norm(x).startswith("стоянк") for x in w):
@@ -106,6 +108,9 @@ def parse_scenario(path):
             continue
         if k == "разделитель":                       # a median strip with bushes along an arm: two carriageways
             extra.setdefault("median", []).append(next((parse_dir(x) for x in re.split(r"[,\s]+", v) if parse_dir(x)), "E"))
+            continue
+        if k == "герой":                              # which car is "Мы": e39 / lada
+            extra["hero"] = "e39" if any(t in norm(v) for t in ("е39", "e39", "бмв", "bmw", "пятерк", "пятёрк")) else "lada"
             continue
         if k == "доезжает":                          # where a driving car ("едет") stops before the junction / crosswalk, metres from the centre
             m_ = re.search(r"\d+([.,]\d+)?", v)
@@ -163,6 +168,15 @@ def parse_scenario(path):
                 p = [x.strip() for x in v.split("|")]
                 num = re.search(r"\d+([.,]\d+)?", p[1] if len(p) > 1 else "")
                 b.setdefault("rulers", []).append([norm(p[0]), p[1] if len(p) > 1 else "", float(num.group(0).replace(",", ".")) if num else 5.0])
+            elif k == "едет":                              # keyframes of a driving car: "Едет: мы | 120 > 60" = z (metres from the centre) at the start > at the end of this beat
+                p = [x.strip() for x in v.split("|")]
+                nums = re.findall(r"-?\d+(?:[.,]\d+)?", p[1] if len(p) > 1 else "")
+                if len(nums) >= 2:
+                    b.setdefault("drive", []).append([norm(p[0]), float(nums[0].replace(",", ".")), float(nums[1].replace(",", "."))])
+            elif k == "поворотник":                        # "Поворотник: мы | вкл" / "выкл" / "после" (flashes only after the junction centre)
+                p = [x.strip() for x in v.split("|")]
+                m_ = norm(p[1]) if len(p) > 1 else "вкл"
+                b.setdefault("blink", []).append([norm(p[0]), "after" if m_.startswith("посл") else "off" if m_.startswith("выкл") else "on"])
             elif k == "часть":
                 b.setdefault("parts", []).extend(int(x) for x in re.findall(r"\d", v))
             elif k == "перестроить":
