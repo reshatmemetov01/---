@@ -649,7 +649,7 @@ SC.actors.forEach((a, i) => {
   a.stop = (ROUND ? 14 : 10.4) + u.half + 0.6;
   a.curve = pathLocal(a.move === "park" || a.move === "cruise" ? "straight" : a.move, a.stop);
   if (a.move === "cruise") { const m = new THREE.MeshBasicMaterial({color: "#ffae00"});
-    a.blinkers = [box(0.26, 0.13, 0.05, m, u.bx - 0.1, u.by * 1.15, -u.bz, a.obj, false), box(0.26, 0.13, 0.05, m, u.bx - 0.1, u.by * 1.15, u.bz, a.obj, false)]; a.blinkers.forEach(b2 => b2.visible = false); }
+    a.blinkers = [box(0.24, 0.12, 0.05, m, u.bx * 0.72, u.by * 1.55, -u.bz, a.obj, false), box(0.24, 0.12, 0.05, m, u.bx * 0.72, u.by * 1.55, u.bz, a.obj, false)]; a.blinkers.forEach(b2 => b2.visible = false); }
   if (a.move !== "straight" && a.move !== "park" && a.move !== "cruise" && !n.startsWith("трамв")) { const m = new THREE.MeshBasicMaterial({color: "#ffae00"}), side = a.move === "right" ? 1 : -1;
     a.blinkers = [box(0.3, 0.22, 0.12, m, side * u.bx, u.by, -u.bz, a.obj, false), box(0.3, 0.22, 0.12, m, side * u.bx, u.by, u.bz, a.obj, false)]; }
   ACT[n] = a;
