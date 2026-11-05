@@ -171,8 +171,9 @@ def parse_scenario(path):
             elif k == "едет":                              # keyframes of a driving car: "Едет: мы | 120 > 60" = z (metres from the centre) at the start > at the end of this beat
                 p = [x.strip() for x in v.split("|")]
                 nums = re.findall(r"-?\d+(?:[.,]\d+)?", p[1] if len(p) > 1 else "")
+                dl = re.findall(r"\d+(?:[.,]\d+)?", p[2]) if len(p) > 2 else []        # optional 3rd part: seconds to wait at the start of the beat
                 if len(nums) >= 2:
-                    b.setdefault("drive", []).append([norm(p[0]), float(nums[0].replace(",", ".")), float(nums[1].replace(",", "."))])
+                    b.setdefault("drive", []).append([norm(p[0]), float(nums[0].replace(",", ".")), float(nums[1].replace(",", ".")), float(dl[0].replace(",", ".")) if dl else 0.0])
             elif k == "поворотник":                        # "Поворотник: мы | вкл" / "выкл" / "после" (flashes only after the junction centre)
                 p = [x.strip() for x in v.split("|")]
                 m_ = norm(p[1]) if len(p) > 1 else "вкл"
